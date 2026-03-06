@@ -4,9 +4,9 @@
 
 ## 推荐入口
 
-- [从零开始配置](/newbie/quick-start)
-- [订阅与查询配置](/newbie/configuration)
-- [推荐链路说明](/newbie/workflow)
+- [从零开始配置](#/newbie/quick-start)
+- [订阅与查询配置](#/newbie/configuration)
+- [推荐链路说明](#/newbie/workflow)
 
 ## 说明
 
