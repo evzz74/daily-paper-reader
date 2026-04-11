@@ -7,7 +7,12 @@
       "Bash(python /tmp/patch_workflow.py)",
       "Bash(python /tmp/patch_workflow2.py)",
       "Bash(python /tmp/patch_frontend.py)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(head -n 1245 app/secret.session.js)",
+      "Bash(tail -n +1249 app/secret.session.js)",
+      "Bash(echo '      const selectedProvider = \\(\\) => {:*)",
+      "Bash(cat /tmp/part1.js /tmp/new_function.js /tmp/part2.js)",
+      "Bash(git checkout:*)"
     ]
   }
 }

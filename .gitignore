@@ -23,6 +23,7 @@ app.log
 
 # 编译器
 .claude/
+
 # 临时/测试文件
 test.pdf
 

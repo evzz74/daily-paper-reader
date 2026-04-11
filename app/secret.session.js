@@ -1246,6 +1246,11 @@
         return checked ? checked.value : 'plato';
       };
 
+      const selectedWorkflowProvider = () => {
+        const checked = document.querySelector('input[name="secret-setup-workflow-provider"]:checked');
+        return checked ? checked.value : 'blt';
+      };
+
       const selectedPlatoModel = () => {
         const workflowProvider = selectedWorkflowProvider();
         if (workflowProvider === 'custom') {
