@@ -7,8 +7,14 @@
   const UPLOAD_FILES_DIR = `${UPLOAD_DIR}/files`;
   const UPLOAD_META_DIR = `${UPLOAD_DIR}/meta`;
   const UPLOAD_README_PATH = `${UPLOAD_DIR}/README.md`;
+  const HOME_README_PATH = 'docs/README.md';
+  const SIDEBAR_PATH = 'docs/_sidebar.md';
   const README_LIST_START = '<!-- USER_UPLOAD_LIST_START -->';
   const README_LIST_END = '<!-- USER_UPLOAD_LIST_END -->';
+  const HOME_SECTION_START = '<!-- USER_UPLOAD_HOME_START -->';
+  const HOME_SECTION_END = '<!-- USER_UPLOAD_HOME_END -->';
+  const SIDEBAR_SECTION_START = '<!-- USER_UPLOAD_SIDEBAR_START -->';
+  const SIDEBAR_SECTION_END = '<!-- USER_UPLOAD_SIDEBAR_END -->';
   const SUPPORTED_EXTENSIONS = ['.pdf', '.md', '.txt'];
   let uploadOverlay = null;
   let isUploading = false;
@@ -218,6 +224,33 @@
     return `- [${title}](#/user-uploads/${entry.id}) · \`${originalFilename}\` · ${uploadDate}`;
   };
 
+  const buildHomeEntryLine = (entry) => {
+    const title = normalizeText(entry.title || entry.originalFilename || entry.id) || '未命名文献';
+    const originalFilename = normalizeText(entry.originalFilename || '');
+    const uploadDate = normalizeText(entry.uploadDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const statusLabel = entry.summaryStatus === 'done' ? '已生成' : '处理中';
+    return `- [${title}](#/user-uploads/${entry.id}) · \`${originalFilename}\` · ${uploadDate} · ${statusLabel}`;
+  };
+
+  const buildSidebarSection = (entry) => {
+    const title = escapeHtml(normalizeText(entry.title || entry.originalFilename || entry.id) || '未命名文献');
+    return [
+      '* <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">我的上传文献</a>',
+      `  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/${encodeURIComponent(entry.id)}">${title}</a>`,
+    ].join('\n');
+  };
+
+  const upsertMarkedSection = (content, startMarker, endMarker, sectionBody) => {
+    const base = String(content || '').trim();
+    const block = `${startMarker}\n${String(sectionBody || '').trim()}\n${endMarker}`;
+    const startIdx = base.indexOf(startMarker);
+    const endIdx = base.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+      return `${base.slice(0, startIdx).trimEnd()}\n${block}\n${base.slice(endIdx + endMarker.length).trimStart()}`.trim() + '\n';
+    }
+    return `${base}\n\n${block}\n`.trim() + '\n';
+  };
+
   const updateUploadsReadmeContent = (content, entry) => {
     const safeContent = String(content || '');
     const line = buildReadmeEntryLine(entry);
@@ -247,6 +280,62 @@ ${README_LIST_END}
       .filter((item) => item !== '- 暂无上传文献');
     const deduped = [line, ...existing.filter((item) => item !== line)];
     return `${before}\n${deduped.join('\n')}\n${after}`.replace(/\n{3,}/g, '\n\n');
+  };
+
+  const updateHomeReadmeContent = (content, entry) => {
+    const safeContent = String(content || '');
+    const line = buildHomeEntryLine(entry);
+    const section = [
+      '## 我的上传文献',
+      '',
+      line,
+    ].join('\n');
+    if (!safeContent.trim()) {
+      return upsertMarkedSection('', HOME_SECTION_START, HOME_SECTION_END, section);
+    }
+
+    const startIdx = safeContent.indexOf(HOME_SECTION_START);
+    const endIdx = safeContent.indexOf(HOME_SECTION_END);
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+      return upsertMarkedSection(safeContent, HOME_SECTION_START, HOME_SECTION_END, section);
+    }
+
+    const currentBody = safeContent
+      .slice(startIdx + HOME_SECTION_START.length, endIdx)
+      .trim();
+    const bodyLines = currentBody
+      ? currentBody.split('\n').filter((item) => {
+        const trimmed = item.trim();
+        return trimmed && trimmed !== '## 我的上传文献' && trimmed !== '- 暂无上传文献';
+      })
+      : [];
+    const nextBody = ['## 我的上传文献', '', line, ...(bodyLines.length ? ['', ...bodyLines] : [])].join('\n');
+    return upsertMarkedSection(safeContent, HOME_SECTION_START, HOME_SECTION_END, nextBody);
+  };
+
+  const updateSidebarContent = (content, entry) => {
+    const safeContent = String(content || '');
+    const section = buildSidebarSection(entry);
+    const startIdx = safeContent.indexOf(SIDEBAR_SECTION_START);
+    const endIdx = safeContent.indexOf(SIDEBAR_SECTION_END);
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+      return upsertMarkedSection(safeContent, SIDEBAR_SECTION_START, SIDEBAR_SECTION_END, section);
+    }
+    const currentBody = safeContent
+      .slice(startIdx + SIDEBAR_SECTION_START.length, endIdx)
+      .trim();
+    const existingLines = currentBody
+      .split('\n')
+      .map((item) => item.trimEnd())
+      .filter(Boolean)
+      .filter((item) => !item.includes('#/user-uploads/README'))
+      .filter((item) => !item.includes(`#/user-uploads/${encodeURIComponent(entry.id)}`));
+    const nextLines = [
+      '* <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">我的上传文献</a>',
+      `  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/${encodeURIComponent(entry.id)}">${escapeHtml(normalizeText(entry.title || entry.originalFilename || entry.id) || '未命名文献')}</a>`,
+      ...existingLines,
+    ];
+    return upsertMarkedSection(safeContent, SIDEBAR_SECTION_START, SIDEBAR_SECTION_END, nextLines.join('\n'));
   };
 
   const buildPlaceholderMarkdown = (entry) => {
@@ -301,6 +390,14 @@ ${README_LIST_END}
 
   const loadReadmeContentFromGithub = async (token, owner, repo) => {
     const existing = await getGithubFile(token, owner, repo, UPLOAD_README_PATH);
+    if (!existing || !existing.content) {
+      return '';
+    }
+    return decodeGithubBase64Utf8(existing.content);
+  };
+
+  const loadTextFileFromGithub = async (token, owner, repo, path) => {
+    const existing = await getGithubFile(token, owner, repo, path);
     if (!existing || !existing.content) {
       return '';
     }
@@ -561,6 +658,10 @@ ${README_LIST_END}
     const placeholderMarkdown = buildPlaceholderMarkdown(entry);
     const currentReadme = await loadReadmeContentFromGithub(token, repoInfo.owner, repoInfo.repo);
     const nextReadme = updateUploadsReadmeContent(currentReadme, entry);
+    const currentHomeReadme = await loadTextFileFromGithub(token, repoInfo.owner, repoInfo.repo, HOME_README_PATH);
+    const nextHomeReadme = updateHomeReadmeContent(currentHomeReadme, entry);
+    const currentSidebar = await loadTextFileFromGithub(token, repoInfo.owner, repoInfo.repo, SIDEBAR_PATH);
+    const nextSidebar = updateSidebarContent(currentSidebar, entry);
 
     await putGithubFile(
       token,
@@ -593,6 +694,22 @@ ${README_LIST_END}
       UPLOAD_README_PATH,
       encodeUtf8ToBase64(nextReadme),
       `chore: update uploads index ${fileId}`,
+    );
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      HOME_README_PATH,
+      encodeUtf8ToBase64(nextHomeReadme),
+      `chore: update home uploads section ${fileId}`,
+    );
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      SIDEBAR_PATH,
+      encodeUtf8ToBase64(nextSidebar),
+      `chore: update sidebar uploads section ${fileId}`,
     );
 
     saveToLocalStorage(
@@ -643,11 +760,13 @@ ${README_LIST_END}
     };
 
     try {
+      const uploadedEntries = [];
       for (const file of pendingFiles) {
         showUploadMessage(`正在上传 ${file.name} 到 GitHub...`, 'info');
         const entry = await uploadSingleFile(file, metadata);
         showUploadMessage(`已上传 ${file.name}，正在触发总结工作流...`, 'info');
         await triggerSummaryWorkflow(entry);
+        uploadedEntries.push(entry);
 
         // 添加到侧边栏（通过自定义事件通知 docsify-plugin）
         document.dispatchEvent(
@@ -666,7 +785,12 @@ ${README_LIST_END}
       showUploadMessage('上传成功，工作流已触发。', 'success');
       setTimeout(() => {
         closeUploadOverlay();
-        if (window.location.hash.includes('user-uploads/README')) {
+        const targetHash = uploadedEntries.length === 1
+          ? uploadedEntries[0].route
+          : '#/user-uploads/README';
+        if (targetHash && window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        } else {
           window.location.reload();
         }
       }, 1200);

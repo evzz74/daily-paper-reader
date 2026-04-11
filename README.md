@@ -35,6 +35,9 @@
 
 ## 📰 News
 
+- **2026-04-11** 📤 打通用户上传文献工作流：上传确认后文件会直接写入 `docs/user-uploads/`，立即触发独立总结 workflow，自动生成占位页、详细总结页、上传索引，并同步更新首页与左侧目录入口。
+- **2026-04-11** 🔌 恢复并补齐非 BLT 提供商配置链路：工作流测试、Secrets 保存、运行时 summary/rerank 调用现在都会按用户填写的第三方 `Base URL / Model / API Key` 生效。
+- **2026-04-11** 🛠️ 修复第三方模型兼容问题：为 Kimi / Moonshot 等只允许固定温度的模型统一处理 `temperature=1`，同时修复上传总结 workflow 中 `LLMClient` 定义顺序导致的导入失败。
 - **2026-04-08** 🏷️ 推荐状态改为按 tag 独立维护：`carryover` 时间与历史 `seen_ids` 不再跨词条互相污染，单词条 `10 天` / `30 天` 抓取、回补与复跑更稳定。
 - **2026-04-08** 🧩 对齐密钥配置向导并暂时禁用 OpenAI-compatible 入口：保留更稳定的 BLT 默认链路，避免设置面板与 workflow 之间出现不兼容配置。
 - **2026-03-28** 🧬 补齐多源论文维护链路：新增并打通 `bioRxiv`、`medRxiv`、`ChemRxiv` 以及多类会议论文的抓取、向量编码、Supabase 同步与检索 SQL，支持将多源论文纳入统一推荐与阅读流。
@@ -78,6 +81,7 @@
 
 - **🔎 Daily Paper Radar**：每日自动抓取 arXiv / OpenReview 新论文，持续追踪研究前沿。
 - **🎯 Personalized Feed**：基于关键词、研究方向与兴趣生成个性化推荐流。
+- **📤 Bring Your Own Papers**：支持上传 PDF / Markdown / TXT，并在上传后立即生成可阅读、可讨论的 AI 总结页面。
 - **📖 Read in Context**：支持摘要、原文、速览、长总结在同一页面串联阅读。
 - **💬 Ask While Reading**：支持 AI 论文问答，边读边问，沉淀私人讨论记录。
 - **🚀 Zero-Server Deployment**：依托 GitHub Actions 自动更新、GitHub Pages 部署，无需额外服务器。
@@ -107,6 +111,8 @@
 - 🌐 打开 [柏拉图 API 平台](https://api.bltcy.ai/)
 - 📝 完成注册 / 登录
 - 🔐 充值并创建密钥
+
+也支持填写任意 **OpenAI-compatible** 提供商，例如 OpenAI、DeepSeek、Kimi、GLM、Qwen 等。前端测试按钮、GitHub Secrets 保存和 workflow 实际调用会统一使用你在网页中填写的 `Base URL / Model / API Key`。
 
 ### 2) 🪪 准备 GitHub PAT
 
@@ -144,6 +150,23 @@ https://<你的用户名>.github.io/daily-paper-reader
 
 完成以上步骤后，后续大多数日常使用和配置都可以直接在网页端完成。后续教程参考：[daily-paper-reader 指引](https://ziwenhahaha.github.io/daily-paper-reader/#/tutorial/README)
 
+## 📤 上传文献模式
+
+上传模式适合处理你自己的论文、报告、讲义或实验文档，不依赖 arXiv 抓取链路。
+
+- 支持格式：`PDF`、`Markdown (.md)`、`TXT`
+- 上传后会先在 `docs/user-uploads/` 下创建源文件、元数据和占位页
+- 随后自动触发 `user-upload-summary` workflow 读取文件内容并生成总结
+- 总结完成后会同步刷新 `docs/user-uploads/README.md`、首页入口和左侧目录入口
+- 上传页面生成后可以继续使用站内聊天区对该文档提问
+
+原项目读取 arXiv 论文正文的方式仍然保留：
+
+- 先通过 arXiv API 获取元数据和 PDF 链接
+- 在文档生成阶段优先尝试通过 Jina 拉取 Markdown
+- 失败后回退到 `PyMuPDF` 直接读取 PDF 文本
+- 再调用 LLM 生成速览和长总结
+
 ## ❓ FAQ
 
 ### 💻 需要服务器吗？
@@ -153,6 +176,12 @@ https://<你的用户名>.github.io/daily-paper-reader
 ### 🎛️ 可以做哪些个性化配置？
 
 你可以调整订阅关键词、研究方向、查询意图与日常阅读偏好，构建自己的论文推荐流。
+
+### 🔌 支持第三方模型吗？
+
+支持。除了默认的 BLT 配置，也可以在网页端改成自定义 OpenAI-compatible 提供商。测试连接和实际 workflow 调用会使用同一套配置。
+
+部分提供商有额外兼容约束，例如 Kimi / Moonshot 某些模型只接受 `temperature=1`，项目内部已做兼容处理。
 
 ### 👨‍🔬 适合实验室或团队一起用吗？
 

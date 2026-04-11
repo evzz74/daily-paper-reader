@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import html
 import json
 import os
 import re
@@ -15,7 +16,15 @@ from llm import BltClient, GenericOpenAIClient, LLMClient
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UPLOAD_ROOT = os.path.join(ROOT_DIR, "docs", "user-uploads")
 UPLOAD_META_DIR = os.path.join(UPLOAD_ROOT, "meta")
+HOME_README_PATH = os.path.join(ROOT_DIR, "docs", "README.md")
+SIDEBAR_PATH = os.path.join(ROOT_DIR, "docs", "_sidebar.md")
 MAX_INPUT_CHARS = 50000
+HOME_SECTION_START = "<!-- USER_UPLOAD_HOME_START -->"
+HOME_SECTION_END = "<!-- USER_UPLOAD_HOME_END -->"
+SIDEBAR_SECTION_START = "<!-- USER_UPLOAD_SIDEBAR_START -->"
+SIDEBAR_SECTION_END = "<!-- USER_UPLOAD_SIDEBAR_END -->"
+HOME_MAX_ITEMS = 8
+SIDEBAR_MAX_ITEMS = 12
 
 
 def log(message: str) -> None:
@@ -58,6 +67,20 @@ def save_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def save_json(path: str, data: dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def load_text(path: str) -> str:
+    if not os.path.exists(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def extract_pdf_text(pdf_path: str) -> str:
@@ -295,8 +318,37 @@ def build_markdown(meta: dict[str, Any], glance: dict[str, str] | None, deep_sum
     return "\n".join(lines).strip() + "\n"
 
 
-def render_upload_index(entries: list[dict[str, Any]]) -> str:
-    items = sorted(
+def collapse_inline_text(value: Any, limit: int = 120) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def escape_markdown_link_text(value: Any) -> str:
+    return str(value or "").replace("[", r"\[").replace("]", r"\]").replace("\n", " ").strip()
+
+
+def build_sorted_entries() -> list[dict[str, Any]]:
+    if not os.path.isdir(UPLOAD_META_DIR):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for name in os.listdir(UPLOAD_META_DIR):
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(UPLOAD_META_DIR, name)
+        try:
+            item = load_json(path)
+        except Exception as exc:
+            log(f"[WARN] 跳过损坏的上传元数据 {name}: {exc}")
+            continue
+        if not isinstance(item, dict):
+            continue
+        item["_meta_name"] = name
+        entries.append(item)
+
+    return sorted(
         entries,
         key=lambda item: (
             str(item.get("upload_date") or ""),
@@ -304,6 +356,10 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
         ),
         reverse=True,
     )
+
+
+def render_upload_index(entries: list[dict[str, Any]]) -> str:
+    items = list(entries)
     lines = [
         "# 我的上传文献",
         "",
@@ -326,7 +382,12 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
             title = str(item.get("title") or item.get("original_filename") or file_id).strip() or "未命名文档"
             original_filename = str(item.get("original_filename") or "").strip()
             upload_date = str(item.get("upload_date") or "").strip() or "Unknown"
-            lines.append(f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date}')
+            summary_status = "已生成" if str(item.get("summary_status") or "").strip() == "done" else "处理中"
+            tldr = collapse_inline_text(item.get("tldr") or "", limit=90)
+            line = f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date} · {summary_status}'
+            if tldr:
+                line += f" · TLDR: {tldr}"
+            lines.append(line)
     else:
         lines.append("- 暂无上传文献")
     lines.extend(
@@ -348,20 +409,85 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def regenerate_upload_readme() -> None:
-    if not os.path.isdir(UPLOAD_META_DIR):
-        return
-    entries: list[dict[str, Any]] = []
-    for name in os.listdir(UPLOAD_META_DIR):
-        if not name.endswith(".json"):
-            continue
-        path = os.path.join(UPLOAD_META_DIR, name)
-        try:
-            entries.append(load_json(path))
-        except Exception as exc:
-            log(f"[WARN] 跳过损坏的上传元数据 {name}: {exc}")
+def render_home_section(entries: list[dict[str, Any]]) -> str:
+    lines = [
+        "## 我的上传文献",
+        "",
+    ]
+    items = list(entries[:HOME_MAX_ITEMS])
+    if items:
+        for item in items:
+            file_id = str(item.get("file_id") or "").strip()
+            title = escape_markdown_link_text(item.get("title") or item.get("original_filename") or file_id or "未命名文档")
+            original_filename = str(item.get("original_filename") or "").strip()
+            upload_date = str(item.get("upload_date") or "").strip() or "Unknown"
+            status = "已生成" if str(item.get("summary_status") or "").strip() == "done" else "处理中"
+            line = f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date} · {status}'
+            tldr = collapse_inline_text(item.get("tldr") or "", limit=120)
+            if tldr:
+                line += f" · TLDR: {tldr}"
+            lines.append(line)
+    else:
+        lines.append("- 暂无上传文献")
+    lines.append("")
+    return "\n".join(lines).strip()
+
+
+def render_sidebar_section(entries: list[dict[str, Any]]) -> str:
+    lines = [
+        '* <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">我的上传文献</a>'
+    ]
+    items = list(entries[:SIDEBAR_MAX_ITEMS])
+    if items:
+        for item in items:
+            file_id = str(item.get("file_id") or "").strip()
+            title = html.escape(str(item.get("title") or item.get("original_filename") or file_id or "未命名文档").strip(), quote=True)
+            route = html.escape(f"#/user-uploads/{file_id}", quote=True)
+            lines.append(
+                f'  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="{route}">{title}</a>'
+            )
+    else:
+        lines.append('  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">上传入口</a>')
+    return "\n".join(lines).strip()
+
+
+def upsert_marked_section(base: str, start_marker: str, end_marker: str, section_body: str) -> str:
+    body = section_body.strip()
+    if not body:
+        body = "-"
+    block = f"{start_marker}\n{body}\n{end_marker}"
+    source = str(base or "").strip()
+    if start_marker in source and end_marker in source:
+        pattern = re.compile(re.escape(start_marker) + r"[\s\S]*?" + re.escape(end_marker), re.MULTILINE)
+        replaced = pattern.sub(block, source, count=1)
+        return replaced.strip() + "\n"
+    if source:
+        return source + "\n\n" + block + "\n"
+    return block + "\n"
+
+
+def regenerate_upload_readme(entries: list[dict[str, Any]]) -> None:
     readme_path = os.path.join(UPLOAD_ROOT, "README.md")
     save_text(readme_path, render_upload_index(entries))
+
+
+def regenerate_home_readme(entries: list[dict[str, Any]]) -> None:
+    current = load_text(HOME_README_PATH)
+    updated = upsert_marked_section(current, HOME_SECTION_START, HOME_SECTION_END, render_home_section(entries))
+    save_text(HOME_README_PATH, updated)
+
+
+def regenerate_sidebar(entries: list[dict[str, Any]]) -> None:
+    current = load_text(SIDEBAR_PATH)
+    updated = upsert_marked_section(current, SIDEBAR_SECTION_START, SIDEBAR_SECTION_END, render_sidebar_section(entries))
+    save_text(SIDEBAR_PATH, updated)
+
+
+def regenerate_indexes() -> None:
+    entries = build_sorted_entries()
+    regenerate_upload_readme(entries)
+    regenerate_home_readme(entries)
+    regenerate_sidebar(entries)
 
 
 def process_upload(file_id: str) -> None:
@@ -396,7 +522,11 @@ def process_upload(file_id: str) -> None:
     source_link = "./" + os.path.relpath(source_path, os.path.dirname(page_path)).replace("\\", "/")
     markdown = build_markdown(meta, glance, deep_summary, source_link)
     save_text(page_path, markdown)
-    regenerate_upload_readme()
+    meta["summary_status"] = "done"
+    meta["summary_updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta["tldr"] = str((glance or {}).get("tldr") or "").strip()
+    save_json(meta_path, meta)
+    regenerate_indexes()
     log(f"[INFO] 已生成上传文献总结页：{page_path}")
 
 

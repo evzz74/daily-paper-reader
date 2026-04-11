@@ -70,7 +70,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           branch="${GITHUB_REF_NAME:-main}"
 
-          git add docs/user-uploads
+          git add docs/user-uploads docs/README.md docs/_sidebar.md
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
