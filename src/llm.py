@@ -36,92 +36,7 @@ def create_generic_openai_client(
     创建通用的 OpenAI-compatible 客户端。
     支持任意符合 OpenAI Chat Completions API 的提供商。
     """
-    return LLMClient(api_key=api_key, model=model, base_url=base_url)
-
-
-class GenericOpenAIClient(LLMClient):
-    """
-    通用 OpenAI-compatible 客户端。
-    支持任意符合 OpenAI Chat Completions API 的提供商。
-    """
-    def __init__(self, api_key: str, model: str, base_url: str):
-        super().__init__(api_key=api_key, model=model, base_url=base_url)
-
-    def rerank(
-        self,
-        query: str,
-        documents: List[str],
-        top_n: Optional[int] = None,
-        model: Optional[str] = None,
-    ) -> dict:
-        """
-        使用 LLM 进行重排序（当 /rerank 端点不可用时）。
-        通过让 LLM 为每个文档评分来实现。
-        """
-        if not query:
-            raise ValueError("rerank: query 不能为空")
-        if not documents:
-            raise ValueError("rerank: documents 不能为空")
-
-        use_model = model or self.model
-        top_n_val = top_n or len(documents)
-
-        # 构建评分提示
-        scores = []
-        for idx, doc in enumerate(documents):
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a relevance scoring assistant. "
-                        "Rate how relevant a document is to a query on a scale of 0-100. "
-                        "Respond with ONLY a number between 0 and 100."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Query: {query}\n\nDocument: {doc[:500]}\n\nRelevance score (0-100):",
-                },
-            ]
-
-            try:
-                response = self.chat(messages, response_format=None)
-                content = response.get("content", "").strip()
-                # 提取数字
-                match = re.search(r'\b(\d+(?:\.\d+)?)\b', content)
-                if match:
-                    score = float(match.group(1))
-                    score = max(0, min(100, score))  # 限制在 0-100
-                else:
-                    score = 50  # 默认中等分数
-            except Exception as e:
-                print(f"[WARN] 文档 {idx} 评分失败: {e}")
-                score = 50  # 默认中等分数
-
-            scores.append({
-                "index": idx,
-                "document": doc,
-                "score": score / 100.0,  # 归一化到 0-1
-            })
-
-        # 按分数排序
-        scores.sort(key=lambda x: x["score"], reverse=True)
-
-        # 构建 rerank 格式的输出
-        results = []
-        for rank, item in enumerate(scores[:top_n_val], start=1):
-            results.append({
-                "index": item["index"],
-                "document": item["document"],
-                "relevance_score": item["score"],
-            })
-
-        return {
-            "model": use_model,
-            "query": query,
-            "top_n": top_n_val,
-            "results": results,
-        }
+    return GenericOpenAIClient(api_key=api_key, model=model, base_url=base_url)
 
 
 def reset_global_tokens():
@@ -759,6 +674,87 @@ class LLMClient:
 class DeepSeekClient(LLMClient):
     def __init__(self, api_key: str, model: str, base_url: str = "https://api.deepseek.com"):
         super().__init__(api_key=api_key, model=model, base_url=base_url)
+
+
+class GenericOpenAIClient(LLMClient):
+    """
+    通用 OpenAI-compatible 客户端。
+    支持任意符合 OpenAI Chat Completions API 的提供商。
+    """
+    def __init__(self, api_key: str, model: str, base_url: str):
+        super().__init__(api_key=api_key, model=model, base_url=base_url)
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[str],
+        top_n: Optional[int] = None,
+        model: Optional[str] = None,
+    ) -> dict:
+        """
+        使用 LLM 进行重排序（当 /rerank 端点不可用时）。
+        通过让 LLM 为每个文档评分来实现。
+        """
+        if not query:
+            raise ValueError("rerank: query 不能为空")
+        if not documents:
+            raise ValueError("rerank: documents 不能为空")
+
+        use_model = model or self.model
+        top_n_val = top_n or len(documents)
+
+        scores = []
+        for idx, doc in enumerate(documents):
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a relevance scoring assistant. "
+                        "Rate how relevant a document is to a query on a scale of 0-100. "
+                        "Respond with ONLY a number between 0 and 100."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Query: {query}\n\nDocument: {doc[:500]}\n\nRelevance score (0-100):",
+                },
+            ]
+
+            try:
+                response = self.chat(messages, response_format=None)
+                content = response.get("content", "").strip()
+                match = re.search(r'\b(\d+(?:\.\d+)?)\b', content)
+                if match:
+                    score = float(match.group(1))
+                    score = max(0, min(100, score))
+                else:
+                    score = 50
+            except Exception as e:
+                print(f"[WARN] 文档 {idx} 评分失败: {e}")
+                score = 50
+
+            scores.append({
+                "index": idx,
+                "document": doc,
+                "score": score / 100.0,
+            })
+
+        scores.sort(key=lambda x: x["score"], reverse=True)
+
+        results = []
+        for rank, item in enumerate(scores[:top_n_val], start=1):
+            results.append({
+                "index": item["index"],
+                "document": item["document"],
+                "relevance_score": item["score"],
+            })
+
+        return {
+            "model": use_model,
+            "query": query,
+            "top_n": top_n_val,
+            "results": results,
+        }
 
 
 class SiliconflowClient(LLMClient):
