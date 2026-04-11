@@ -37,7 +37,7 @@ jobs:
       # 支持 BLT 和通用 OpenAI-compatible 提供商
       BLT_API_KEY: ${{ secrets.BLT_API_KEY }}
       BLT_REWRITE_MODEL: ${{ secrets.BLT_REWRITE_MODEL }}
-      BLT_RERANK_MODEL: ${{ secrets.BLT_RERANK_MODEL || 'qwen3-reranker-4b' }}
+      BLT_RERANK_MODEL: ${{ secrets.Reranker_LLM_MODEL || secrets.BLT_RERANK_MODEL || 'qwen3-reranker-4b' }}
       BLT_FILTER_MODEL: ${{ secrets.BLT_FILTER_MODEL }}
       BLT_PRIMARY_BASE_URL: ${{ secrets.BLT_PRIMARY_BASE_URL }}
       BLT_API_BASE: ${{ secrets.BLT_PRIMARY_BASE_URL }}

@@ -488,6 +488,7 @@
       const secretNameBltSummaryModel = 'BLT_SUMMARY_MODEL';
       const secretNameBltFilterModel = 'BLT_FILTER_MODEL';
       const secretNameBltRewriteModel = 'BLT_REWRITE_MODEL';
+      const secretNameBltRerankModel = 'BLT_RERANK_MODEL';
       const secretNameSkipRerank = 'DPR_SKIP_RERANK';
       const secretNameRerankKey = 'Reranker_LLM_API_KEY';
       const secretNameRerankUrl = 'Reranker_LLM_BASE_URL';
@@ -533,12 +534,14 @@
         { name: secretNameBltSummaryModel, value: summarizedModel },
         { name: secretNameBltFilterModel, value: filterModel || summarizedModel },
         { name: secretNameBltRewriteModel, value: rewriteModel || summarizedModel },
+        { name: secretNameBltRerankModel, value: rerankerModel || summarizedModel },
         { name: secretNameSkipRerank, value: skipRerank ? 'true' : 'false' },
         // 新增：通用 LLM 配置
         { name: 'LLM_API_KEY', value: summarizedApiKey },
         { name: 'LLM_BASE_URL', value: summarizedBaseUrl },
         { name: 'LLM_MODEL', value: summarizedModel },
         { name: 'OPENAI_API_KEY', value: summarizedApiKey },
+        { name: 'OPENAI_BASE_URL', value: summarizedBaseUrl },
       ];
 
       if (!skipRerank && rerankerApiKey && rerankerBaseUrl && rerankerModel) {
@@ -896,7 +899,7 @@
         window.decoded_secret_private && typeof window.decoded_secret_private === 'object'
           ? window.decoded_secret_private
           : {};
-      const currentProviderType = inferProviderType(currentSecret);
+      const currentWorkflowProviderType = inferProviderType(currentSecret);
       const currentSummaryLLM = resolveSummaryLLM(currentSecret) || {};
       const currentChatEntry =
         Array.isArray(currentSecret.chatLLMs) && currentSecret.chatLLMs.length
@@ -926,14 +929,42 @@
         currentSecret.github && currentSecret.github.token,
       );
       const initialApiKey = normalizeText(currentSummaryLLM.apiKey || '');
+      const initialWorkflowBaseUrl = normalizeBaseUrlForStorage(
+        currentSummaryLLM.baseUrl || '',
+      );
+      const initialWorkflowCustomBaseUrl =
+        currentWorkflowProviderType === 'openai-compatible'
+          ? initialWorkflowBaseUrl
+          : '';
+      const initialWorkflowCustomModel =
+        currentWorkflowProviderType === 'openai-compatible'
+          ? normalizeText(currentSummaryLLM.model || '')
+          : '';
       const initialCustomApiKey = normalizeText(currentChatEntry.apiKey || '');
       const initialCustomBaseUrl = normalizeBaseUrlForStorage(
         currentChatEntry.baseUrl || '',
       );
       const initialPlatoModel =
         normalizeText(currentSummaryLLM.model || '') || 'gpt-5-chat';
+      const currentChatProviderType = (() => {
+        if (!initialCustomApiKey || !initialCustomBaseUrl) {
+          return 'plato';
+        }
+        const chatModels = sanitizeModelList(currentChatEntry.models || [], 3);
+        const reuseWorkflowConfig =
+          initialCustomApiKey === initialApiKey
+          && initialCustomBaseUrl === initialWorkflowBaseUrl
+          && (
+            /bltcy\.ai|gptbest\.vip/i.test(initialWorkflowBaseUrl)
+            || (
+              chatModels.length === 1
+              && chatModels[0] === normalizeText(currentSummaryLLM.model || '')
+            )
+          );
+        return reuseWorkflowConfig ? 'plato' : 'openai-compatible';
+      })();
       const initialCustomModels = sanitizeModelList(
-        currentProviderType === 'openai-compatible'
+        currentChatProviderType === 'openai-compatible'
           ? (currentChatEntry.models || [])
           : [],
         3,
@@ -1041,18 +1072,18 @@
           </div>
 
           <div class="secret-setup-step2-col">
-            <div class="secret-setup-step2-block">
-              <div class="secret-setup-step2-title">聊天模型来源</div>
-              <p class="secret-setup-step2-note">
-                BLT 是工作流必填项；OpenAI-compatible 入口已重新开放，但仍属于实验性能力，仅作为聊天区模型来源。
-              </p>
+              <div class="secret-setup-step2-block">
+                <div class="secret-setup-step2-title">聊天模型来源</div>
+                <p class="secret-setup-step2-note">
+                聊天区默认复用工作流配置；也可以单独指定一套 OpenAI-compatible 聊天模型，不影响工作流执行。
+                </p>
               <label class="secret-setup-provider-choice">
                 <input type="radio" name="secret-setup-provider" value="plato" />
-                <span><strong>聊天区也使用 BLT</strong>工作流总结、过滤、reranker 与聊天区统一使用柏拉图（BLTCY）模型。</span>
+                <span><strong>聊天区复用工作流配置</strong>如果工作流使用 BLT，则聊天区也用 BLT；如果工作流使用自定义 provider，则聊天区复用同一套配置。</span>
               </label>
               <label class="secret-setup-provider-choice">
                 <input type="radio" name="secret-setup-provider" value="openai-compatible" />
-                <span><strong>聊天区使用 OpenAI-compatible（实验性）</strong>工作流总结与 reranker 仍强制使用 BLT，最多 3 个自定义模型仅用于聊天区。</span>
+                <span><strong>聊天区使用单独的 OpenAI-compatible（实验性）</strong>为聊天区额外配置 Base URL 与最多 3 个模型，工作流仍按左侧配置执行。</span>
               </label>
             </div>
 
@@ -1158,6 +1189,8 @@
       const customModel2Input = document.getElementById('secret-setup-custom-model-2');
       const customModel3Input = document.getElementById('secret-setup-custom-model-3');
       const platoModelSelect = document.getElementById('secret-setup-plato-model-select');
+      const workflowCustomBaseUrlInput = document.getElementById('secret-setup-workflow-base-url');
+      const workflowCustomModelInput = document.getElementById('secret-setup-workflow-custom-model');
       const deepseekPresetBtn = document.getElementById('secret-setup-preset-deepseek');
       const glmPresetBtn = document.getElementById('secret-setup-preset-glm');
       const minimaxPresetBtn = document.getElementById('secret-setup-preset-minimax');
@@ -1183,6 +1216,8 @@
         !platoStatusEl ||
         !platoModelsWrap ||
         !platoModelSelect ||
+        !workflowCustomBaseUrlInput ||
+        !workflowCustomModelInput ||
         !customApiKeyInput ||
         !customBaseUrlInput ||
         !customModel1Input ||
@@ -1209,18 +1244,26 @@
 
       githubInput.value = initialGithubToken;
       platoInput.value = initialApiKey;
+      workflowCustomBaseUrlInput.value = initialWorkflowCustomBaseUrl;
+      workflowCustomModelInput.value = initialWorkflowCustomModel;
       customApiKeyInput.value =
-        currentProviderType === 'openai-compatible'
+        currentChatProviderType === 'openai-compatible'
         ? normalizeText(currentChatEntry.apiKey || '')
         : '';
       customBaseUrlInput.value =
-        currentProviderType === 'openai-compatible' ? initialCustomBaseUrl : '';
+        currentChatProviderType === 'openai-compatible' ? initialCustomBaseUrl : '';
       customModel1Input.value = initialCustomModels[0] || '';
       customModel2Input.value = initialCustomModels[1] || '';
       customModel3Input.value = initialCustomModels[2] || '';
 
       providerInputs.forEach((input) => {
-        input.checked = input.value === currentProviderType;
+        input.checked = input.value === currentChatProviderType;
+      });
+      const workflowProviderInputs = Array.from(document.querySelectorAll('input[name="secret-setup-workflow-provider"]'));
+      workflowProviderInputs.forEach((input) => {
+        input.checked = input.value === (
+          currentWorkflowProviderType === 'openai-compatible' ? 'custom' : 'blt'
+        );
       });
       platoModelSelect.value = initialPlatoModel || 'gpt-5-chat';
       if (!platoModelSelect.value) {
@@ -1228,9 +1271,14 @@
       }
 
       let githubOk = !!initialGithubToken;
-      let platoOk = !!initialApiKey;
+      let workflowOk =
+        !!initialApiKey
+        && (
+          currentWorkflowProviderType !== 'openai-compatible'
+          || (!!initialWorkflowCustomBaseUrl && !!initialWorkflowCustomModel)
+        );
       let customOk =
-        currentProviderType === 'openai-compatible'
+        currentChatProviderType === 'openai-compatible'
         && !!initialCustomApiKey
         && !!initialCustomBaseUrl
         && initialCustomModels.length > 0;
@@ -1274,9 +1322,9 @@
       };
 
       const resetPlatoStatus = () => {
-        platoOk = false;
+        workflowOk = false;
         platoStatusEl.innerHTML =
-          '将通过一次 <code>hello world</code> 请求检查配置可用性。';
+          '将对当前工作流配置发送一次 <code>hello world</code> 请求，检查 API Key、Base URL 与模型是否可用。';
         platoStatusEl.style.color = '#999';
       };
 
@@ -1338,23 +1386,56 @@
         };
       };
 
+      const validateWorkflowCustomDraft = () => {
+        const apiKey = normalizeText(platoInput.value);
+        const baseUrl = normalizeBaseUrlForStorage(workflowCustomBaseUrlInput.value);
+        const model = normalizeText(workflowCustomModelInput.value);
+
+        if (!apiKey) {
+          throw new Error('请先输入工作流 API Key。');
+        }
+        if (!baseUrl) {
+          throw new Error('请先输入工作流 Base URL。');
+        }
+        if (!/^https?:\/\//i.test(baseUrl)) {
+          throw new Error('工作流 Base URL 需要以 http:// 或 https:// 开头。');
+        }
+        if (!model) {
+          throw new Error('请先输入工作流模型名称。');
+        }
+        return {
+          apiKey,
+          baseUrl,
+          model,
+        };
+      };
+
       const collectProviderDraft = () => {
-        const provider = selectedProvider();
+        const workflowProvider = selectedWorkflowProvider();
+        const chatProvider = selectedProvider();
         const apiKey = normalizeText(platoInput.value);
         const model = selectedPlatoModel();
         if (!apiKey) {
-          throw new Error('请先输入 BLT API Key。');
+          throw new Error('请先输入工作流 API Key。');
         }
         if (!model) {
           throw new Error('请选择用于工作流总结的大模型。');
         }
-        if (provider === 'plato') {
+        const customChatDraft = chatProvider === 'openai-compatible'
+          ? validateCustomDraft()
+          : null;
+        if (workflowProvider === 'blt') {
           return {
             providerType: 'plato',
+            chatProviderType: chatProvider,
             summaryApiKey: apiKey,
             summaryBaseUrl: getDefaultPlatoBaseUrl(),
             summaryModel: model,
-            chatModels: defaultPlatoModels,
+            chatModels: chatProvider === 'openai-compatible'
+              ? customChatDraft.models
+              : defaultPlatoModels,
+            chatApiKey: customChatDraft && customChatDraft.apiKey,
+            chatBaseUrl: customChatDraft && customChatDraft.baseUrl,
             rewriteModel: 'gemini-3-flash-preview',
             filterModel: 'gemini-3-flash-preview-nothinking',
             skipRerank: false,
@@ -1366,33 +1447,36 @@
           };
         }
 
-        const customDraft = validateCustomDraft();
+        const workflowCustomDraft = validateWorkflowCustomDraft();
         return {
           providerType: 'openai-compatible',
-          summaryApiKey: apiKey,
-          summaryBaseUrl: getDefaultPlatoBaseUrl(),
-          summaryModel: model,
-          chatModels: customDraft.models,
-          chatApiKey: customDraft.apiKey,
-          chatBaseUrl: customDraft.baseUrl,
-          rewriteModel: 'gemini-3-flash-preview',
-          filterModel: 'gemini-3-flash-preview-nothinking',
+          chatProviderType: chatProvider,
+          summaryApiKey: workflowCustomDraft.apiKey,
+          summaryBaseUrl: workflowCustomDraft.baseUrl,
+          summaryModel: workflowCustomDraft.model,
+          chatModels: chatProvider === 'openai-compatible'
+            ? customChatDraft.models
+            : [workflowCustomDraft.model],
+          chatApiKey: customChatDraft && customChatDraft.apiKey,
+          chatBaseUrl: customChatDraft && customChatDraft.baseUrl,
+          rewriteModel: workflowCustomDraft.model,
+          filterModel: workflowCustomDraft.model,
           skipRerank: false,
           reranker: {
-            apiKey,
-            baseUrl: getDefaultPlatoBaseUrl(),
-            model: 'qwen3-reranker-4b',
+            apiKey: workflowCustomDraft.apiKey,
+            baseUrl: workflowCustomDraft.baseUrl,
+            model: workflowCustomDraft.model,
           },
         };
       };
 
       const buildPingEntries = () => {
-        const provider = selectedProvider();
-        if (provider === 'plato') {
+        const workflowProvider = selectedWorkflowProvider();
+        if (workflowProvider === 'blt') {
           const apiKey = normalizeText(platoInput.value);
           const model = selectedPlatoModel();
           if (!apiKey || !model) {
-            throw new Error('请先填写柏拉图 API Key 并选择总结模型。');
+            throw new Error('请先填写工作流 API Key 并选择总结模型。');
           }
           return [
             {
@@ -1403,11 +1487,22 @@
           ];
         }
 
+        const workflowCustomDraft = validateWorkflowCustomDraft();
+        return [
+          {
+            apiKey: workflowCustomDraft.apiKey,
+            baseUrl: workflowCustomDraft.baseUrl,
+            model: workflowCustomDraft.model,
+          },
+        ];
+      };
+
+      const buildCustomPingEntries = () => {
         const customDraft = validateCustomDraft();
-        return customDraft.models.map((model) => ({
+        return customDraft.models.map((modelName) => ({
           apiKey: customDraft.apiKey,
           baseUrl: customDraft.baseUrl,
-          model,
+          model: modelName,
         }));
       };
 
@@ -1424,10 +1519,10 @@
         githubStatusEl.style.color = '#666';
       }
       if (initialApiKey) {
-        platoStatusEl.textContent = '已载入当前加密配置；如更换 API Key 或模型，建议重新验证或点击测试按钮。';
+        platoStatusEl.textContent = '已载入当前工作流配置；如更换 API Key、Base URL 或模型，建议重新验证或点击测试按钮。';
         platoStatusEl.style.color = '#666';
       }
-      if (currentProviderType === 'openai-compatible' && initialCustomApiKey && initialCustomBaseUrl) {
+      if (currentChatProviderType === 'openai-compatible' && initialCustomApiKey && initialCustomBaseUrl) {
         customStatusEl.textContent = '已载入当前加密配置；如更换 Base URL / 模型，建议重新点击测试。';
         customStatusEl.style.color = '#666';
       }
@@ -1435,7 +1530,6 @@
       syncProviderSections();
 
       // 工作流提供商切换
-      const workflowProviderInputs = Array.from(document.querySelectorAll('input[name="secret-setup-workflow-provider"]'));
       const workflowCustomSection = document.getElementById('secret-setup-workflow-custom-section');
       const workflowCustomModelSection = document.getElementById('secret-setup-workflow-custom-model-section');
       const platoModelsDiv = document.getElementById('secret-setup-plato-models');
@@ -1455,17 +1549,17 @@
       };
 
       workflowProviderInputs.forEach((input) => {
-        input.addEventListener('change', syncWorkflowModelInput);
+        input.addEventListener('change', () => {
+          syncWorkflowModelInput();
+          resetPlatoStatus();
+        });
       });
       // 初始同步
       syncWorkflowModelInput();
 
       bindResetOnInput([githubInput], resetGithubStatus);
       bindResetOnInput([platoInput, platoModelSelect], resetPlatoStatus);
-      const workflowCustomModelInput = document.getElementById('secret-setup-workflow-custom-model');
-      if (workflowCustomModelInput) {
-        bindResetOnInput([workflowCustomModelInput], resetPlatoStatus);
-      }
+      bindResetOnInput([workflowCustomBaseUrlInput, workflowCustomModelInput], resetPlatoStatus);
       bindResetOnInput(
         [customApiKeyInput, customBaseUrlInput, customModel1Input, customModel2Input, customModel3Input],
         resetCustomStatus,
@@ -1550,36 +1644,41 @@
       });
 
       platoVerifyBtn.addEventListener('click', async () => {
-        const key = normalizeText(platoInput.value);
-        if (!key) {
-          platoStatusEl.textContent = '请先输入柏拉图 API Key。';
-          platoStatusEl.style.color = '#c00';
-          platoOk = false;
-          return;
-        }
         platoVerifyBtn.disabled = true;
-        platoStatusEl.textContent = '正在验证柏拉图 API Key...';
+        const workflowProvider = selectedWorkflowProvider();
+        platoStatusEl.textContent = workflowProvider === 'blt'
+          ? '正在验证 BLT API Key...'
+          : '自定义 provider 不支持额度校验，正在执行连通性测试...';
         platoStatusEl.style.color = '#666';
         try {
-          const resp = await fetch('https://api.bltcy.ai/v1/token/quota', {
-            method: 'GET',
-            headers: {
-              Authorization: `Bearer ${key}`,
-            },
-          });
-          if (!resp.ok) {
-            throw new Error(`HTTP ${resp.status}`);
+          if (workflowProvider === 'blt') {
+            const key = normalizeText(platoInput.value);
+            if (!key) {
+              throw new Error('请先输入工作流 API Key。');
+            }
+            const resp = await fetch('https://api.bltcy.ai/v1/token/quota', {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${key}`,
+              },
+            });
+            if (!resp.ok) {
+              throw new Error(`HTTP ${resp.status}`);
+            }
+            const data = await resp.json().catch(() => null);
+            const quota = data && typeof data.quota === 'number' ? data.quota : 0;
+            const used = -quota;
+            platoStatusEl.textContent = `✅ 验证成功：已用额度约 ${used.toFixed(2)}。如需更稳妥，可继续点击“测试当前配置”。`;
+          } else {
+            const models = await pingChatModels(buildPingEntries(), platoStatusEl);
+            platoStatusEl.textContent = `✅ 自定义工作流配置可用：${models.join(', ')}`;
           }
-          const data = await resp.json().catch(() => null);
-          const quota = data && typeof data.quota === 'number' ? data.quota : 0;
-          const used = -quota;
-          platoStatusEl.textContent = `✅ 验证成功：已用额度约 ${used.toFixed(2)}。如需更稳妥，可继续点击“测试当前配置”。`;
           platoStatusEl.style.color = '#28a745';
-          platoOk = true;
+          workflowOk = true;
         } catch (e) {
           platoStatusEl.textContent = `❌ 验证失败：${e.message || e}`;
           platoStatusEl.style.color = '#c00';
-          platoOk = false;
+          workflowOk = false;
         } finally {
           platoVerifyBtn.disabled = false;
         }
@@ -1592,11 +1691,11 @@
           const models = await pingChatModels(buildPingEntries(), platoStatusEl);
           platoStatusEl.textContent = `✅ 配置可用：${models.join(', ')}`;
           platoStatusEl.style.color = '#28a745';
-          platoOk = true;
+          workflowOk = true;
         } catch (e) {
           platoStatusEl.textContent = `❌ 测试失败：${e.message || e}`;
           platoStatusEl.style.color = '#c00';
-          platoOk = false;
+          workflowOk = false;
         } finally {
           platoTestBtn.disabled = false;
           platoVerifyBtn.disabled = false;
@@ -1606,7 +1705,7 @@
       customTestBtn.addEventListener('click', async () => {
         customTestBtn.disabled = true;
         try {
-          const models = await pingChatModels(buildPingEntries(), customStatusEl);
+          const models = await pingChatModels(buildCustomPingEntries(), customStatusEl);
           customStatusEl.textContent = `✅ 配置可用：${models.join(', ')}`;
           customStatusEl.style.color = '#28a745';
           customOk = true;
@@ -1634,15 +1733,11 @@
           return;
         }
 
-        if (providerDraft.providerType === 'plato' && !platoOk) {
-          setErrorText('请先验证柏拉图 API Key，或点击“测试当前配置”。', '#c00');
+        if (!workflowOk) {
+          setErrorText('请先验证当前工作流配置，或点击“测试当前配置”。', '#c00');
           return;
         }
-        if (providerDraft.providerType === 'openai-compatible' && !platoOk) {
-          setErrorText('请先验证 BLT API Key，工作流总结与 reranker 必须使用 BLT。', '#c00');
-          return;
-        }
-        if (providerDraft.providerType === 'openai-compatible' && !customOk) {
+        if (providerDraft.chatProviderType === 'openai-compatible' && !customOk) {
           setErrorText('请先点击“测试当前配置”，确认 OpenAI-compatible 配置可用。', '#c00');
           return;
         }
@@ -1674,10 +1769,10 @@
               },
           chatLLMs: [
             {
-              apiKey: providerDraft.providerType === 'openai-compatible'
+              apiKey: providerDraft.chatProviderType === 'openai-compatible'
                 ? providerDraft.chatApiKey
                 : providerDraft.summaryApiKey,
-              baseUrl: providerDraft.providerType === 'openai-compatible'
+              baseUrl: providerDraft.chatProviderType === 'openai-compatible'
                 ? providerDraft.chatBaseUrl
                 : providerDraft.summaryBaseUrl,
               models: providerDraft.chatModels,
