@@ -248,6 +248,30 @@ class LLMClient:
         return 'llm'
 
     @staticmethod
+    def _requires_temperature_one(model: str | None, base_url: str | None = None) -> bool:
+        normalized_model = str(model or '').strip().lower()
+        normalized_base = str(base_url or '').strip().lower()
+        return (
+            normalized_model.startswith('kimi-')
+            or 'moonshot' in normalized_base
+            or 'api.moonshot.cn' in normalized_base
+        )
+
+    def _normalize_payload_for_provider(
+        self,
+        payload: Dict[str, Any],
+        *,
+        request_base: str | None = None,
+    ) -> Dict[str, Any]:
+        normalized = dict(payload)
+        if self._requires_temperature_one(
+            normalized.get("model") or self.model,
+            request_base or self.base_url,
+        ):
+            normalized["temperature"] = 1
+        return normalized
+
+    @staticmethod
     def _extract_text_content(value: Any) -> str:
         if isinstance(value, str):
             return value
@@ -469,7 +493,11 @@ class LLMClient:
         for attempt_idx, req_base in enumerate(request_bases, start=1):
             request_url = self._build_chat_completions_url(req_base)
             try:
-                response = requests.post(request_url, headers=headers, json=payload, timeout=120)
+                request_payload = self._normalize_payload_for_provider(
+                    payload,
+                    request_base=req_base,
+                )
+                response = requests.post(request_url, headers=headers, json=request_payload, timeout=120)
                 response.raise_for_status()
                 try:
                     response_data = response.json()

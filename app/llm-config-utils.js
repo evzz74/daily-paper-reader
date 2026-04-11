@@ -279,6 +279,10 @@
   const buildConnectivityTestPayload = ({ baseUrl, model }) => {
     const normalizedModel = normalizeText(model);
     const normalizedBaseUrl = normalizeBaseUrlForStorage(baseUrl || '').toLowerCase();
+    const isKimiFamily =
+      /^kimi-/i.test(normalizedModel)
+      || /(^|\/\/)api\.moonshot\.cn(?:$|\/)/i.test(normalizedBaseUrl)
+      || /moonshot/.test(normalizedBaseUrl);
     const wantsMaxCompletionTokens =
       /^glm-/i.test(normalizedModel)
       || /open\.bigmodel\.cn/.test(normalizedBaseUrl)
@@ -298,7 +302,7 @@
           content: 'hello world',
         },
       ],
-      temperature: 0,
+      temperature: isKimiFamily ? 1 : 0,
       max_tokens: 256,
     };
     if (wantsMaxCompletionTokens) {

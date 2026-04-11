@@ -220,8 +220,14 @@
     if (typeof utils.buildConnectivityTestPayload === 'function') {
       return utils.buildConnectivityTestPayload({ baseUrl, model });
     }
+    const normalizedBaseUrl = normalizeBaseUrlForStorage(baseUrl || '').toLowerCase();
+    const normalizedModel = normalizeText(model || '');
+    const isKimiFamily =
+      /^kimi-/i.test(normalizedModel)
+      || /(^|\/\/)api\.moonshot\.cn(?:$|\/)/i.test(normalizedBaseUrl)
+      || /moonshot/.test(normalizedBaseUrl);
     return {
-      model: normalizeText(model || ''),
+      model: normalizedModel,
       messages: [
         {
           role: 'system',
@@ -232,7 +238,7 @@
           content: 'hello world',
         },
       ],
-      temperature: 0,
+      temperature: isKimiFamily ? 1 : 0,
       max_tokens: 256,
     };
   };

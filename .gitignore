@@ -37,3 +37,9 @@ deploy_edgeone.sh
 # 忽略 Python 缓存
 __pycache__/
 *.pyc
+
+# 系统生成文件
+ENDSCRIPT
+EOF
+NUL
+PYEOF
