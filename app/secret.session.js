@@ -534,6 +534,11 @@
         { name: secretNameBltFilterModel, value: filterModel || summarizedModel },
         { name: secretNameBltRewriteModel, value: rewriteModel || summarizedModel },
         { name: secretNameSkipRerank, value: skipRerank ? 'true' : 'false' },
+        // 新增：通用 LLM 配置
+        { name: 'LLM_API_KEY', value: summarizedApiKey },
+        { name: 'LLM_BASE_URL', value: summarizedBaseUrl },
+        { name: 'LLM_MODEL', value: summarizedModel },
+        { name: 'OPENAI_API_KEY', value: summarizedApiKey },
       ];
 
       if (!skipRerank && rerankerApiKey && rerankerBaseUrl && rerankerModel) {
@@ -961,10 +966,29 @@
             </div>
 
             <div id="secret-setup-plato-section" class="secret-setup-step2-block">
-              <div class="secret-setup-step2-title">工作流 / Reranker 专用 BLT（必填）</div>
+              <div class="secret-setup-step2-title">工作流 / Reranker LLM 配置</div>
               <p class="secret-setup-step2-note">
-                BLT 用于 query enrich、LLM refine、总结与 reranker，是工作流硬依赖。
+                用于 query enrich、LLM refine、总结与 reranker。支持 BLT 或任意 OpenAI-compatible 提供商。
               </p>
+              <div style="margin-bottom:10px;">
+                <label class="secret-setup-provider-choice">
+                  <input type="radio" name="secret-setup-workflow-provider" value="blt" checked />
+                  <span><strong>使用 BLT（柏拉图）</strong></span>
+                </label>
+                <label class="secret-setup-provider-choice">
+                  <input type="radio" name="secret-setup-workflow-provider" value="custom" />
+                  <span><strong>使用自定义 OpenAI-compatible</strong></span>
+                </label>
+              </div>
+              <div id="secret-setup-workflow-custom-section" style="display:none; margin-bottom:10px;">
+                <input
+                  id="secret-setup-workflow-base-url"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="Base URL，例如 https://api.openai.com/v1"
+                  style="width:100%; box-sizing:border-box; padding:6px 8px; margin-bottom:4px; font-size:13px;"
+                />
+              </div>
               <div class="secret-setup-input-row multi-actions">
                 <input
                   id="secret-setup-plato"
@@ -1390,6 +1414,17 @@
       }
 
       syncProviderSections();
+
+      // 工作流提供商切换
+      const workflowProviderInputs = Array.from(document.querySelectorAll('input[name="secret-setup-workflow-provider"]'));
+      const workflowCustomSection = document.getElementById('secret-setup-workflow-custom-section');
+      workflowProviderInputs.forEach((input) => {
+        input.addEventListener('change', () => {
+          if (workflowCustomSection) {
+            workflowCustomSection.style.display = input.value === 'custom' && input.checked ? 'block' : 'none';
+          }
+        });
+      });
 
       bindResetOnInput([githubInput], resetGithubStatus);
       bindResetOnInput([platoInput, platoModelSelect], resetPlatoStatus);

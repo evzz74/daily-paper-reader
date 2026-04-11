@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List
 
-from llm import BltClient
+from llm import BltClient, GenericOpenAIClient, LLMClient
 from subscription_plan import build_pipeline_inputs
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -309,7 +309,7 @@ def build_repeated_user_prompt(query: str) -> str:
 
 
 def call_filter(
-    client: BltClient,
+    client: LLMClient,
     all_requirements: List[Dict[str, str]],
     docs: List[Dict[str, str]],
     debug_dir: str,
@@ -591,14 +591,21 @@ def recover_filter_results(
     )
 
 
-def _make_filter_client(api_key: str, model: str, max_output_tokens: int) -> BltClient:
-    client = BltClient(api_key=api_key, model=model)
+def _make_filter_client(api_key: str, model: str, max_output_tokens: int) -> LLMClient:
+    # 判断是否使用非 BLT 提供商
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or os.getenv("BLT_PRIMARY_BASE_URL")
+    is_blt = base_url and ("bltcy.ai" in base_url or "gptbest" in base_url)
+
+    if is_blt:
+        client = BltClient(api_key=api_key, model=model)
+    else:
+        client = GenericOpenAIClient(api_key=api_key, model=model, base_url=base_url or "https://api.openai.com/v1")
     client.kwargs.update({"temperature": 0.1, "max_tokens": max_output_tokens})
     return client
 
 
 def _make_filter_runner(
-    client: BltClient,
+    client: LLMClient,
     all_requirements: List[Dict[str, str]],
     debug_dir: str,
     base_tag: str,
@@ -724,9 +731,10 @@ def process_file(
         return
     paper_map = build_paper_map(papers)
 
-    api_key = os.getenv("BLT_API_KEY")
+    # 支持 BLT 和通用 OpenAI-compatible 提供商
+    api_key = os.getenv("BLT_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("missing BLT_API_KEY")
+        raise RuntimeError("missing API key (BLT_API_KEY or LLM_API_KEY)")
 
     group_start(f"Step 4 - llm refine {os.path.basename(input_path)}")
     log(

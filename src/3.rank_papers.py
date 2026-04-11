@@ -8,7 +8,7 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from llm import BltClient
+from llm import BltClient, GenericOpenAIClient, LLMClient
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -429,11 +429,20 @@ def main() -> None:
     log(f"[WARN] 输入文件不存在（今天可能没有新论文）：{input_path}，将跳过 Step 3。")
     return
 
-  api_key = os.getenv("BLT_API_KEY")
+  # 支持 BLT 和通用 OpenAI-compatible 提供商
+  api_key = os.getenv("BLT_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
   if not api_key:
-    raise RuntimeError("缺少 BLT_API_KEY 环境变量，无法调用 BLT Rerank API。")
+    raise RuntimeError("缺少 API Key 环境变量（BLT_API_KEY 或 LLM_API_KEY），无法调用 Rerank API。")
 
-  reranker = BltClient(api_key=api_key, model=args.rerank_model)
+  # 判断是否使用非 BLT 提供商
+  base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or os.getenv("BLT_PRIMARY_BASE_URL")
+  is_blt = base_url and ("bltcy.ai" in base_url or "gptbest" in base_url)
+
+  if is_blt:
+    reranker = BltClient(api_key=api_key, model=args.rerank_model)
+  else:
+    # 使用通用 OpenAI-compatible 客户端
+    reranker = GenericOpenAIClient(api_key=api_key, model=args.rerank_model, base_url=base_url or "https://api.openai.com/v1")
   process_file(
     reranker=reranker,
     input_path=input_path,

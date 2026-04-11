@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 import yaml  # type: ignore
 
-from llm import BltClient
+from llm import BltClient, GenericOpenAIClient, LLMClient
 
 SCRIPT_DIR = os.path.dirname(__file__)
 CONFIG_FILE = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "config.yaml"))
@@ -140,7 +140,7 @@ def main() -> None:
     if not os.path.exists(CONFIG_FILE):
         raise FileNotFoundError(f"找不到 config.yaml：{CONFIG_FILE}")
 
-    api_key = os.getenv("BLT_API_KEY")
+    api_key = os.getenv("BLT_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("缺少 BLT_API_KEY 环境变量，无法调用 BLT。")
 
@@ -153,7 +153,14 @@ def main() -> None:
     keywords = subs.get("keywords") or []
     llm_queries = subs.get("llm_queries") or []
 
-    client = BltClient(api_key=api_key, model=MODEL_NAME)
+    # 判断是否使用非 BLT 提供商
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or os.getenv("BLT_PRIMARY_BASE_URL")
+    is_blt = base_url and ("bltcy.ai" in base_url or "gptbest" in base_url)
+
+    if is_blt or not base_url:
+        client = BltClient(api_key=api_key, model=MODEL_NAME)
+    else:
+        client = GenericOpenAIClient(api_key=api_key, model=MODEL_NAME, base_url=base_url)
 
     related_schema = {
       "type": "object",

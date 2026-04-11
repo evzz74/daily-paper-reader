@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Tuple
 
 import fitz  # PyMuPDF
 import requests
-from llm import BltClient
+from llm import BltClient, GenericOpenAIClient, LLMClient
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -34,18 +34,31 @@ CONFIG_FILE = os.path.join(ROOT_DIR, "config.yaml")
 TODAY_STR = str(os.getenv("DPR_RUN_DATE") or "").strip() or datetime.now(timezone.utc).strftime("%Y%m%d")
 RANGE_DATE_RE = re.compile(r"^(\d{8})-(\d{8})$")
 
-# LLM 配置（使用 llm.py 内的 BLT 客户端）
-BLT_API_KEY = os.getenv("BLT_API_KEY")
-BLT_MODEL = os.getenv("BLT_SUMMARY_MODEL", "gemini-3-flash-preview")
-LLM_CLIENT = None
-if BLT_API_KEY:
-    LLM_CLIENT = BltClient(api_key=BLT_API_KEY, model=BLT_MODEL)
+# LLM 配置（支持 BLT 和通用 OpenAI-compatible 提供商）
+def _create_llm_client() -> LLMClient | None:
+    """创建 LLM 客户端，支持 BLT 和通用 OpenAI-compatible 提供商。"""
+    api_key = os.getenv("BLT_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+
+    model = os.getenv("BLT_SUMMARY_MODEL") or os.getenv("LLM_MODEL") or "gemini-3-flash-preview"
+    base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or os.getenv("BLT_PRIMARY_BASE_URL")
+
+    # 判断是否使用非 BLT 提供商
+    is_blt = base_url and ("bltcy.ai" in base_url or "gptbest" in base_url)
+
+    if is_blt or not base_url:
+        return BltClient(api_key=api_key, model=model)
+    else:
+        return GenericOpenAIClient(api_key=api_key, model=model, base_url=base_url)
+
+LLM_CLIENT = _create_llm_client()
 
 DEFAULT_DOCS_CONCURRENCY = 4
 
 
 def call_blt_text(
-    client: BltClient,
+    client: LLMClient,
     messages: List[Dict[str, str]],
     temperature: float,
     max_tokens: int,
@@ -62,7 +75,7 @@ def call_blt_text(
 
 
 def call_blt_structured_json(
-    client: BltClient,
+    client: LLMClient,
     messages: List[Dict[str, str]],
     schema_name: str,
     schema: Dict[str, Any],

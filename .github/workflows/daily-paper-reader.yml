@@ -34,19 +34,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
+      # 支持 BLT 和通用 OpenAI-compatible 提供商
       BLT_API_KEY: ${{ secrets.BLT_API_KEY }}
       BLT_REWRITE_MODEL: ${{ secrets.BLT_REWRITE_MODEL }}
-      BLT_RERANK_MODEL: qwen3-reranker-4b
+      BLT_RERANK_MODEL: ${{ secrets.BLT_RERANK_MODEL || 'qwen3-reranker-4b' }}
       BLT_FILTER_MODEL: ${{ secrets.BLT_FILTER_MODEL }}
-      DPR_EMBED_API_TIMEOUT: "60"
-      LLM_PRIMARY_BASE_URL: ${{ secrets.LLM_PRIMARY_BASE_URL }}
       BLT_PRIMARY_BASE_URL: ${{ secrets.BLT_PRIMARY_BASE_URL }}
       BLT_API_BASE: ${{ secrets.BLT_PRIMARY_BASE_URL }}
-      SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY }}
-      SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL }}
-      SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL }}
+      # 通用 OpenAI-compatible 提供商配置（优先级高于 BLT）
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY || secrets.SUMMARY_API_KEY || secrets.BLT_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || secrets.SUMMARY_BASE_URL || secrets.BLT_PRIMARY_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL || secrets.SUMMARY_MODEL || secrets.BLT_SUMMARY_MODEL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # 总结专用配置（向后兼容）
+      SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY || secrets.BLT_API_KEY }}
+      SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL || secrets.BLT_PRIMARY_BASE_URL }}
+      SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL || secrets.BLT_SUMMARY_MODEL }}
+      # 其他配置
+      LLM_PRIMARY_BASE_URL: ${{ secrets.BLT_PRIMARY_BASE_URL }}
+      DPR_EMBED_API_TIMEOUT: "60"
       PYTHONUNBUFFERED: "1"
-
     steps:
       - name: Random delay to spread scheduled runs
         if: github.event_name == 'schedule'

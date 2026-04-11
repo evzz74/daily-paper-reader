@@ -194,17 +194,21 @@ def _looks_like_blt_base(base_url: str) -> bool:
 
 
 def should_skip_rerank() -> tuple[bool, str]:
+    """
+    判断是否跳过 rerank。
+    现在支持非 BLT 提供商，使用 LLM-based rerank。
+    """
     primary_base = _read_env_text(
         "LLM_PRIMARY_BASE_URL",
         "BLT_PRIMARY_BASE_URL",
         "GPTBEST_BASE_URL",
         "BLT_API_BASE",
     )
+    # 现在支持任意 OpenAI-compatible 提供商，不再强制跳过非 BLT
     if not primary_base:
         return False, ""
-    if _looks_like_blt_base(primary_base):
-        return False, primary_base
-    return True, primary_base
+    # 无论是否是 BLT，都启用 rerank（非 BLT 使用 LLM-based rerank）
+    return False, primary_base
 
 
 def score_to_stars(score: float) -> int:
@@ -305,13 +309,27 @@ def resolve_summary_step_env() -> dict[str, str]:
     summary_base_url = _read_env_text("SUMMARY_BASE_URL", "BLT_SUMMARY_BASE_URL")
     summary_model = _read_env_text("SUMMARY_MODEL", "BLT_SUMMARY_MODEL")
 
+    # 判断是否使用非 BLT 提供商
+    is_non_blt = summary_base_url and not _looks_like_blt_base(summary_base_url)
+
     if summary_api_key:
+        if is_non_blt:
+            # 非 BLT 提供商：使用通用 LLM 环境变量
+            env["LLM_API_KEY"] = summary_api_key
+            env["OPENAI_API_KEY"] = summary_api_key
         env["BLT_API_KEY"] = summary_api_key
     if summary_base_url:
+        if is_non_blt:
+            # 非 BLT 提供商：使用通用 LLM 环境变量
+            env["LLM_BASE_URL"] = summary_base_url
+            env["OPENAI_BASE_URL"] = summary_base_url
         env["LLM_PRIMARY_BASE_URL"] = summary_base_url
         env["BLT_PRIMARY_BASE_URL"] = summary_base_url
         env["BLT_API_BASE"] = summary_base_url
     if summary_model:
+        if is_non_blt:
+            # 非 BLT 提供商：使用通用 LLM 环境变量
+            env["LLM_MODEL"] = summary_model
         env["BLT_SUMMARY_MODEL"] = summary_model
     return env
 
@@ -694,10 +712,11 @@ def main() -> None:
     if trace_ids:
         print_trace_retrieval("RRF", rrf_path, trace_ids)
     skip_rerank, rerank_base = should_skip_rerank()
+    # 注：现在支持非 BLT 提供商，rerank 不再被跳过
     if skip_rerank:
+        # 这个分支理论上不会被执行，因为 should_skip_rerank() 现在总是返回 False
         print(
-            f"[INFO] Step 3 - Rerank 已跳过：当前主 LLM base 不属于柏拉图/BLT，"
-            f"缺少稳定 /rerank 能力。base={rerank_base}",
+            f"[INFO] Step 3 - Rerank 已跳过：base={rerank_base}",
             flush=True,
         )
         prepare_rerank_fallback(rrf_path, rerank_path)

@@ -26,6 +26,103 @@ GLOBAL_TIME_SECONDS: float = 0.0
 PRIMARY_LLM_BASE_URL = "https://api.gptbest.vip/v1"
 DEFAULT_BLT_BASE_URL = "https://api.bltcy.ai/v1"
 
+# 支持任意 OpenAI-compatible 接口的通用客户端
+def create_generic_openai_client(
+    api_key: str,
+    model: str,
+    base_url: str,
+) -> "LLMClient":
+    """
+    创建通用的 OpenAI-compatible 客户端。
+    支持任意符合 OpenAI Chat Completions API 的提供商。
+    """
+    return LLMClient(api_key=api_key, model=model, base_url=base_url)
+
+
+class GenericOpenAIClient(LLMClient):
+    """
+    通用 OpenAI-compatible 客户端。
+    支持任意符合 OpenAI Chat Completions API 的提供商。
+    """
+    def __init__(self, api_key: str, model: str, base_url: str):
+        super().__init__(api_key=api_key, model=model, base_url=base_url)
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[str],
+        top_n: Optional[int] = None,
+        model: Optional[str] = None,
+    ) -> dict:
+        """
+        使用 LLM 进行重排序（当 /rerank 端点不可用时）。
+        通过让 LLM 为每个文档评分来实现。
+        """
+        if not query:
+            raise ValueError("rerank: query 不能为空")
+        if not documents:
+            raise ValueError("rerank: documents 不能为空")
+
+        use_model = model or self.model
+        top_n_val = top_n or len(documents)
+
+        # 构建评分提示
+        scores = []
+        for idx, doc in enumerate(documents):
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a relevance scoring assistant. "
+                        "Rate how relevant a document is to a query on a scale of 0-100. "
+                        "Respond with ONLY a number between 0 and 100."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Query: {query}\n\nDocument: {doc[:500]}\n\nRelevance score (0-100):",
+                },
+            ]
+
+            try:
+                response = self.chat(messages, response_format=None)
+                content = response.get("content", "").strip()
+                # 提取数字
+                match = re.search(r'\b(\d+(?:\.\d+)?)\b', content)
+                if match:
+                    score = float(match.group(1))
+                    score = max(0, min(100, score))  # 限制在 0-100
+                else:
+                    score = 50  # 默认中等分数
+            except Exception as e:
+                print(f"[WARN] 文档 {idx} 评分失败: {e}")
+                score = 50  # 默认中等分数
+
+            scores.append({
+                "index": idx,
+                "document": doc,
+                "score": score / 100.0,  # 归一化到 0-1
+            })
+
+        # 按分数排序
+        scores.sort(key=lambda x: x["score"], reverse=True)
+
+        # 构建 rerank 格式的输出
+        results = []
+        for rank, item in enumerate(scores[:top_n_val], start=1):
+            results.append({
+                "index": item["index"],
+                "document": item["document"],
+                "relevance_score": item["score"],
+            })
+
+        return {
+            "model": use_model,
+            "query": query,
+            "top_n": top_n_val,
+            "results": results,
+        }
+
 
 def reset_global_tokens():
     """重置本次实验的全局 token 统计。"""
@@ -570,8 +667,65 @@ class LLMClient:
         top_n: Optional[int] = None,
         model: Optional[str] = None,
     ) -> dict:
-        """重排序接口（默认不支持，只有 BLT 提供）。"""
-        raise NotImplementedError("rerank 仅支持 BltClient，请使用 BltClient 调用。")
+        """
+        重排序接口。
+        优先使用 /rerank 端点（BLT 等支持），否则回退到基于 LLM 评分的通用 rerank。
+        """
+        # 尝试使用 /rerank 端点
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: Dict[str, Any] = {
+            "model": model or self.model,
+            "query": query,
+            "documents": documents,
+        }
+        if top_n is not None:
+            payload["top_n"] = int(top_n)
+
+        request_bases = self._iter_retry_bases(total_attempts=3)
+        last_error: Exception | None = None
+        for attempt_idx, req_base in enumerate(request_bases, start=1):
+            request_url = f"{req_base.rstrip('/')}/rerank"
+            try:
+                response = requests.post(request_url, headers=headers, json=payload, timeout=120)
+                if response.status_code == 404:
+                    # /rerank 不存在，使用 LLM-based rerank
+                    raise NotImplementedError("rerank endpoint not available")
+                response.raise_for_status()
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    print("Rerank 响应无法解析为 JSON，原始文本预览:", response.text[:500])
+                    raise
+
+                if isinstance(response_data, dict) and 'error' in response_data:
+                    err = response_data.get('error') or {}
+                    print("Rerank 返回错误:", {
+                        'type': err.get('type'),
+                        'code': err.get('code'),
+                        'message': err.get('message') or err,
+                    })
+                    raise requests.exceptions.HTTPError(f"Rerank API error: {err}")
+
+                return response_data
+            except NotImplementedError:
+                raise  # 重新抛出，让上层处理 LLM-based rerank
+            except Exception as e:
+                last_error = e
+                if attempt_idx < len(request_bases):
+                    next_base = request_bases[attempt_idx] if attempt_idx < len(request_bases) else ''
+                    print(
+                        f"Rerank 请求失败（base={req_base}，第 {attempt_idx} 次），"
+                        f"将回退到 {next_base}"
+                    )
+                    continue
+                print(f"通过 requests 调用 Rerank API 时出错: {e}")
+                break
+
+        # 如果 /rerank 端点失败，使用 LLM-based rerank
+        raise NotImplementedError("rerank endpoint not available")
 
 
 class DeepSeekClient(LLMClient):
@@ -754,7 +908,8 @@ class ClientFactory:
             return BltClient(api_key=api_key or os.getenv('BLT_API_KEY', ''), model=model, base_url=base_url or os.getenv('BLT_API_BASE', 'https://api.bltcy.ai/v1'))
         if provider in ('cstcloud', 'cst', 'cst-cloud', 'keji', 'keji-yun'):
             return CSTCloudClient(api_key=api_key or os.getenv('CSTCLOUD_API_KEY', ''), model=model, base_url=base_url or 'https://uni-api.cstcloud.cn/v1')
-        raise ValueError(f"不支持的提供商: {provider}，请使用 'deepseek'、'siliconflow'、'blt'、'cstcloud' 或 'ollama'")
+        # 通用 OpenAI-compatible 客户端（支持任意提供商）
+        return GenericOpenAIClient(api_key=api_key or '', model=model, base_url=base_url or 'https://api.openai.com/v1')
 
     @staticmethod
     def from_config(_config: dict | None = None):
