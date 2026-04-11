@@ -994,7 +994,7 @@
                   id="secret-setup-plato"
                   type="password"
                   autocomplete="off"
-                  placeholder="BLT API Key，例如：sk-xxxx"
+                  placeholder="API Key，例如：sk-xxxx"
                   style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px;"
                 />
                 <button id="secret-setup-plato-verify" type="button" class="secret-gate-btn secondary">
@@ -1005,7 +1005,7 @@
                 </button>
               </div>
               <div id="secret-setup-plato-status" style="min-height:18px; font-size:12px; color:#999; margin-bottom:8px;">
-                将通过 <code>/v1/token/quota</code> 和一次 <code>hello world</code> 请求检查配置可用性。
+                将通过一次 <code>hello world</code> 请求检查配置可用性。
               </div>
 
               <div style="font-weight:500; margin-bottom:4px; display:flex; align-items:center; gap:4px;">
@@ -1027,6 +1027,15 @@
               </div>
               <div id="secret-setup-plato-models" style="font-size:13px;">
                 <select id="secret-setup-plato-model-select" class="secret-setup-select"></select>
+              </div>
+              <div id="secret-setup-workflow-custom-model-section" style="display:none; margin-top:8px;">
+                <input
+                  id="secret-setup-workflow-custom-model"
+                  type="text"
+                  autocomplete="off"
+                  placeholder="模型名称，例如 gpt-4o-mini"
+                  style="width:100%; box-sizing:border-box; padding:6px 8px; font-size:13px;"
+                />
               </div>
             </div>
           </div>
@@ -1238,6 +1247,11 @@
       };
 
       const selectedPlatoModel = () => {
+        const workflowProvider = selectedWorkflowProvider();
+        if (workflowProvider === 'custom') {
+          const customModelInput = document.getElementById('secret-setup-workflow-custom-model');
+          return normalizeText(customModelInput ? customModelInput.value : '');
+        }
         return normalizeText(platoModelSelect.value || '');
       };
 
@@ -1257,7 +1271,7 @@
       const resetPlatoStatus = () => {
         platoOk = false;
         platoStatusEl.innerHTML =
-          '将通过 <code>/v1/token/quota</code> 和一次 <code>hello world</code> 请求检查配置可用性。';
+          '将通过一次 <code>hello world</code> 请求检查配置可用性。';
         platoStatusEl.style.color = '#999';
       };
 
@@ -1418,16 +1432,35 @@
       // 工作流提供商切换
       const workflowProviderInputs = Array.from(document.querySelectorAll('input[name="secret-setup-workflow-provider"]'));
       const workflowCustomSection = document.getElementById('secret-setup-workflow-custom-section');
+      const workflowCustomModelSection = document.getElementById('secret-setup-workflow-custom-model-section');
+      const platoModelsDiv = document.getElementById('secret-setup-plato-models');
+
+      const syncWorkflowModelInput = () => {
+        const provider = selectedWorkflowProvider();
+        const isCustom = provider === 'custom';
+        if (workflowCustomSection) {
+          workflowCustomSection.style.display = isCustom ? 'block' : 'none';
+        }
+        if (workflowCustomModelSection) {
+          workflowCustomModelSection.style.display = isCustom ? 'block' : 'none';
+        }
+        if (platoModelsDiv) {
+          platoModelsDiv.style.display = isCustom ? 'none' : 'block';
+        }
+      };
+
       workflowProviderInputs.forEach((input) => {
-        input.addEventListener('change', () => {
-          if (workflowCustomSection) {
-            workflowCustomSection.style.display = input.value === 'custom' && input.checked ? 'block' : 'none';
-          }
-        });
+        input.addEventListener('change', syncWorkflowModelInput);
       });
+      // 初始同步
+      syncWorkflowModelInput();
 
       bindResetOnInput([githubInput], resetGithubStatus);
       bindResetOnInput([platoInput, platoModelSelect], resetPlatoStatus);
+      const workflowCustomModelInput = document.getElementById('secret-setup-workflow-custom-model');
+      if (workflowCustomModelInput) {
+        bindResetOnInput([workflowCustomModelInput], resetPlatoStatus);
+      }
       bindResetOnInput(
         [customApiKeyInput, customBaseUrlInput, customModel1Input, customModel2Input, customModel3Input],
         resetCustomStatus,

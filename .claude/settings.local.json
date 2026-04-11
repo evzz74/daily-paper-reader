@@ -6,7 +6,8 @@
       "Bash(python /tmp/patch2.py)",
       "Bash(python /tmp/patch_workflow.py)",
       "Bash(python /tmp/patch_workflow2.py)",
-      "Bash(python /tmp/patch_frontend.py)"
+      "Bash(python /tmp/patch_frontend.py)",
+      "Bash(python:*)"
     ]
   }
 }

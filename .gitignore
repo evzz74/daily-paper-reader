@@ -21,6 +21,8 @@ app.log
 # 本地环境配置
 .env
 
+# 编译器
+.claude/
 # 临时/测试文件
 test.pdf
 
