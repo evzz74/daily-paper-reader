@@ -13,6 +13,12 @@ window.DPRWorkflowRunner = (function () {
       },
     },
     {
+      key: 'user-upload-summary',
+      id: 'user-upload-summary.yml',
+      name: '处理上传文献',
+      desc: '触发 user-upload-summary 工作流（读取上传文件并生成阅读总结）。',
+    },
+    {
       key: 'sync',
       id: 'sync.yml',
       name: '同步上游代码',

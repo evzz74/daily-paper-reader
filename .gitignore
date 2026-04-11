@@ -1,12 +1,21 @@
+# Python cache / bytecode
 __pycache__/
 *.py[cod]
 *.pyo
 
-# 虚拟环境
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
 venv/
 .venv/
 
-# 本地数据库文件
+# Local secrets / env
+.env
+secret.private
+
+# Local database files
 app/chat.db
 app/chat.db-shm
 app/chat.db-wal
@@ -14,32 +23,18 @@ chat.db
 chat.db-shm
 chat.db-wal
 
-# 日志文件
+# Logs
 app.log
 *.log
 
-# 本地环境配置
-.env
-
-# 编译器
+# Local tooling
 .claude/
 
-# 临时/测试文件
+# Temporary / test files
 test.pdf
 
 # Tencent Cloud EdgeOne
-.env
 .edgeone/*
 !.edgeone/project.json
 .tef_dist/*
 deploy_edgeone.sh
-
-# 忽略 Python 缓存
-__pycache__/
-*.pyc
-
-# 系统生成文件
-ENDSCRIPT
-EOF
-NUL
-PYEOF

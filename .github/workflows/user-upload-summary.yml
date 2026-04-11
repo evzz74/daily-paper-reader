@@ -1,0 +1,82 @@
+name: user-upload-summary
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_id:
+        description: "上传文件的唯一 file_id"
+        required: true
+      source_path:
+        description: "源文件相对路径（调试用）"
+        required: false
+        default: ""
+      page_path:
+        description: "总结页相对路径（调试用）"
+        required: false
+        default: ""
+      meta_path:
+        description: "元数据相对路径（调试用）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: user-upload-summary-${{ github.event.inputs.file_id }}
+  cancel-in-progress: false
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BLT_API_KEY: ${{ secrets.BLT_API_KEY }}
+      BLT_SUMMARY_MODEL: ${{ secrets.BLT_SUMMARY_MODEL }}
+      BLT_PRIMARY_BASE_URL: ${{ secrets.BLT_PRIMARY_BASE_URL }}
+      BLT_API_BASE: ${{ secrets.BLT_PRIMARY_BASE_URL }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY || secrets.SUMMARY_API_KEY || secrets.BLT_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || secrets.SUMMARY_BASE_URL || secrets.BLT_PRIMARY_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL || secrets.SUMMARY_MODEL || secrets.BLT_SUMMARY_MODEL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || secrets.LLM_BASE_URL || secrets.SUMMARY_BASE_URL || secrets.BLT_PRIMARY_BASE_URL }}
+      SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY || secrets.BLT_API_KEY }}
+      SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL || secrets.BLT_PRIMARY_BASE_URL }}
+      SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL || secrets.BLT_SUMMARY_MODEL }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests pymupdf
+
+      - name: Summarize uploaded file
+        run: |
+          python src/user_upload_summary.py --file-id "${{ github.event.inputs.file_id }}"
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="${GITHUB_REF_NAME:-main}"
+
+          git add docs/user-uploads
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[chore] summarize user upload ${{ github.event.inputs.file_id }}"
+          git fetch origin "$branch"
+          git rebase -X theirs "origin/$branch"
+          git push origin HEAD:"$branch"

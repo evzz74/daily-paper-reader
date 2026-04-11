@@ -4,6 +4,11 @@
   'use strict';
 
   const UPLOAD_DIR = 'docs/user-uploads';
+  const UPLOAD_FILES_DIR = `${UPLOAD_DIR}/files`;
+  const UPLOAD_META_DIR = `${UPLOAD_DIR}/meta`;
+  const UPLOAD_README_PATH = `${UPLOAD_DIR}/README.md`;
+  const README_LIST_START = '<!-- USER_UPLOAD_LIST_START -->';
+  const README_LIST_END = '<!-- USER_UPLOAD_LIST_END -->';
   const SUPPORTED_EXTENSIONS = ['.pdf', '.md', '.txt'];
   let uploadOverlay = null;
   let isUploading = false;
@@ -35,127 +40,291 @@
     return SUPPORTED_EXTENSIONS.includes(ext);
   };
 
-  // 解析PDF文件（简单提取文本，实际项目中可能需要更复杂的PDF解析库）
-  const parsePDF = async (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        // 注意：这里只是简单读取，实际PDF解析需要专门的库如pdf.js
-        resolve({
-          type: 'pdf',
-          content: e.target.result,
-          size: file.size,
-          name: file.name,
-        });
-      };
-      reader.readAsArrayBuffer(file);
+  const loadGithubToken = () => {
+    try {
+      const secret = window.decoded_secret_private || {};
+      if (secret.github && secret.github.token) {
+        return String(secret.github.token || '').trim();
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const raw = window.localStorage
+        ? window.localStorage.getItem('github_token_data')
+        : '';
+      if (!raw) return '';
+      const obj = JSON.parse(raw);
+      return String((obj && obj.token) || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const ghFetch = async (token, url, init) => {
+    return fetch(url, {
+      ...(init || {}),
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        ...(init && init.headers ? init.headers : {}),
+      },
     });
   };
 
-  // 解析文本文件
-  const parseTextFile = async (file) => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        resolve({
-          type: 'text',
-          content: e.target.result,
-          size: file.size,
-          name: file.name,
-        });
-      };
-      reader.readAsText(file);
-    });
+  const readConfigYamlForRepo = async () => {
+    const yaml = window.jsyaml || window.jsYaml || window.jsYAML;
+    if (!yaml || typeof yaml.load !== 'function') {
+      return null;
+    }
+    const candidates = ['config.yaml', 'docs/config.yaml', '../config.yaml', '/config.yaml'];
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const text = await res.text();
+        const cfg = yaml.load(text || '') || {};
+        const githubCfg = (cfg && cfg.github) || {};
+        if (githubCfg && typeof githubCfg === 'object') {
+          const owner = String(githubCfg.owner || '').trim();
+          const repo = String(githubCfg.repo || '').trim();
+          if (owner && repo) {
+            return { owner, repo };
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return null;
   };
 
-  // 生成论文的Markdown内容
-  const generatePaperMarkdown = (fileData, metadata) => {
-    const now = new Date().toISOString().split('T')[0];
-    const fileId = generateFileId(fileData.name);
-
-    let content = fileData.content;
-    // 如果是文本内容，进行简单的格式化
-    if (fileData.type === 'text') {
-      // 尝试提取标题（第一行）
-      const lines = content.split('\n');
-      const title = lines[0].trim() || fileData.name;
-      const body = lines.slice(1).join('\n');
-
-      return {
-        fileId,
-        markdown: `---
-title: "${metadata.title || title}"
-title_zh: "${metadata.titleZh || metadata.title || title}"
-authors: "${metadata.authors || 'Unknown'}"
-date: "${metadata.date || now}"
-source: "用户上传"
-upload_date: "${now}"
-file_type: "${fileData.type}"
-original_filename: "${fileData.name}"
-tags: ["user-upload"]
----
-
-# ${metadata.title || title}
-
-**作者**: ${metadata.authors || 'Unknown'}
-
-**上传日期**: ${now}
-
-**原文档**: ${fileData.name}
-
----
-
-${body}
-`,
-      };
+  const resolveRepoFromUrl = async (token) => {
+    const currentUrl = window.location.href || '';
+    const githubPagesMatch = currentUrl.match(
+      /https?:\/\/([^.]+)\.github\.io\/([^\/]+)/,
+    );
+    if (githubPagesMatch) {
+      return { owner: githubPagesMatch[1], repo: githubPagesMatch[2], branch: 'main' };
     }
 
-    // PDF 或其他二进制文件
+    const configRepo = await readConfigYamlForRepo();
+    if (configRepo && configRepo.owner && configRepo.repo) {
+      return { owner: configRepo.owner, repo: configRepo.repo, branch: 'main' };
+    }
+
+    const userRes = await ghFetch(token, 'https://api.github.com/user');
+    if (!userRes.ok) {
+      throw new Error('无法使用当前 GitHub Token 获取用户信息。');
+    }
+    const user = await userRes.json().catch(() => null);
+    const owner = user && user.login ? String(user.login) : '';
+    if (!owner) {
+      throw new Error('无法推断 GitHub 仓库 owner。');
+    }
+    return { owner, repo: 'daily-paper-reader', branch: 'main' };
+  };
+
+  const decodeGithubBase64Utf8 = (rawBase64) => {
+    const binary = atob(String(rawBase64 || '').replace(/\n/g, ''));
+    if (window.TextDecoder) {
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+    // eslint-disable-next-line no-escape
+    return decodeURIComponent(escape(binary));
+  };
+
+  const encodeUtf8ToBase64 = (text) => {
+    const value = String(text || '');
+    if (window.TextEncoder) {
+      const bytes = new TextEncoder().encode(value);
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      return btoa(binary);
+    }
+    return btoa(unescape(encodeURIComponent(value)));
+  };
+
+  const arrayBufferToBase64 = (buffer) => {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+  };
+
+  const getGithubFile = async (token, owner, repo, path) => {
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+    const res = await ghFetch(token, url);
+    if (res.status === 404) {
+      return null;
+    }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`读取 GitHub 文件失败：${path}（HTTP ${res.status} ${res.statusText} - ${txt}）`);
+    }
+    return res.json().catch(() => null);
+  };
+
+  const putGithubFile = async (token, owner, repo, path, contentBase64, message) => {
+    const existing = await getGithubFile(token, owner, repo, path);
+    const body = {
+      message: normalizeText(message) || `chore: update ${path}`,
+      content: contentBase64,
+    };
+    if (existing && existing.sha) {
+      body.sha = existing.sha;
+    }
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
+    const res = await ghFetch(token, url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`写入 GitHub 文件失败：${path}（HTTP ${res.status} ${res.statusText} - ${txt}）`);
+    }
+    return res.json().catch(() => null);
+  };
+
+  const buildUploadPaths = (fileId, filename) => {
+    const ext = getFileExtension(filename);
     return {
-      fileId,
-      markdown: `---
-title: "${metadata.title || fileData.name}"
-title_zh: "${metadata.titleZh || metadata.title || fileData.name}"
-authors: "${metadata.authors || 'Unknown'}"
-date: "${metadata.date || now}"
-source: "用户上传"
-upload_date: "${now}"
-file_type: "${fileData.type}"
-original_filename: "${fileData.name}"
-file_size: "${formatFileSize(fileData.size)}"
-tags: ["user-upload", "pdf"]
----
-
-# ${metadata.title || fileData.name}
-
-**作者**: ${metadata.authors || 'Unknown'}
-
-**上传日期**: ${now}
-
-**文件大小**: ${formatFileSize(fileData.size)}
-
-**原文档**: ${fileData.name}
-
----
-
-> 此文件为PDF格式，请在浏览器中直接下载查看。
-
-[下载 PDF](${fileData.name})
-`,
+      sourcePath: `${UPLOAD_FILES_DIR}/${fileId}${ext}`,
+      metaPath: `${UPLOAD_META_DIR}/${fileId}.json`,
+      pagePath: `${UPLOAD_DIR}/${fileId}.md`,
+      route: `#/user-uploads/${encodeURIComponent(fileId)}`,
     };
   };
 
-  // 保存到本地存储（模拟）
-  const saveToLocalStorage = (fileId, markdown) => {
+  const buildReadmeEntryLine = (entry) => {
+    const title = normalizeText(entry.title || entry.originalFilename || entry.id) || '未命名文献';
+    const originalFilename = normalizeText(entry.originalFilename || '');
+    const uploadDate = normalizeText(entry.uploadDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    return `- [${title}](#/user-uploads/${entry.id}) · \`${originalFilename}\` · ${uploadDate}`;
+  };
+
+  const updateUploadsReadmeContent = (content, entry) => {
+    const safeContent = String(content || '');
+    const line = buildReadmeEntryLine(entry);
+    const fallback = `# 我的上传文献
+
+本目录用于存放用户自己上传的文献，以及对应的自动阅读总结页面。
+
+## 已上传文献
+
+${README_LIST_START}
+- 暂无上传文献
+${README_LIST_END}
+`;
+    const base = safeContent || fallback;
+    const startIdx = base.indexOf(README_LIST_START);
+    const endIdx = base.indexOf(README_LIST_END);
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+      return `${base.trim()}\n\n## 已上传文献\n\n${README_LIST_START}\n${line}\n${README_LIST_END}\n`;
+    }
+    const before = base.slice(0, startIdx + README_LIST_START.length);
+    const middle = base.slice(startIdx + README_LIST_START.length, endIdx);
+    const after = base.slice(endIdx);
+    const existing = middle
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => item !== '- 暂无上传文献');
+    const deduped = [line, ...existing.filter((item) => item !== line)];
+    return `${before}\n${deduped.join('\n')}\n${after}`.replace(/\n{3,}/g, '\n\n');
+  };
+
+  const buildPlaceholderMarkdown = (entry) => {
+    const title = normalizeText(entry.title || entry.originalFilename || entry.id) || '未命名文献';
+    const titleZh = normalizeText(entry.titleZh || title) || title;
+    const authors = normalizeText(entry.authors || 'Unknown') || 'Unknown';
+    const paperDate = normalizeText(entry.date || '') || 'Unknown';
+    const uploadDate = normalizeText(entry.uploadDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const sourceFileRel = `./files/${entry.id}${getFileExtension(entry.originalFilename)}`;
+    const lines = [
+      '---',
+      `title: "${title.replace(/"/g, '\\"')}"`,
+      `title_zh: "${titleZh.replace(/"/g, '\\"')}"`,
+      `authors: "${authors.replace(/"/g, '\\"')}"`,
+      `date: "${paperDate.replace(/"/g, '\\"')}"`,
+      'source: "用户上传"',
+      `upload_date: "${uploadDate}"`,
+      `original_filename: "${String(entry.originalFilename || '').replace(/"/g, '\\"')}"`,
+      `file_type: "${String(entry.sourceType || '').replace(/"/g, '\\"')}"`,
+      `source_file: "${sourceFileRel}"`,
+      'tags: ["user-upload"]',
+    ];
+    if (entry.sourceType === 'pdf') {
+      lines.push(`pdf: "${sourceFileRel}"`);
+    }
+    lines.push(
+      '---',
+      '',
+      `# ${title}`,
+      '',
+      `**作者**: ${authors}`,
+      '',
+      `**上传日期**: ${uploadDate}`,
+      '',
+      `**原始文件**: [${entry.originalFilename}](${sourceFileRel})`,
+      '',
+      '---',
+      '',
+      '> 文件已上传，工作流已开始处理。',
+      '>',
+      '> AI 阅读总结生成完成后，此页面会自动更新。',
+      '',
+      '## 当前状态',
+      '',
+      '- 上传已完成',
+      '- 工作流已触发',
+      '- 总结状态：处理中',
+      '',
+    );
+    return `${lines.join('\n')}\n`;
+  };
+
+  const loadReadmeContentFromGithub = async (token, owner, repo) => {
+    const existing = await getGithubFile(token, owner, repo, UPLOAD_README_PATH);
+    if (!existing || !existing.content) {
+      return '';
+    }
+    return decodeGithubBase64Utf8(existing.content);
+  };
+
+  const saveToLocalStorage = (entry, markdown) => {
     try {
       const uploads = JSON.parse(localStorage.getItem('dpr_user_uploads') || '[]');
-      uploads.push({
-        id: fileId,
-        date: new Date().toISOString(),
-        preview: markdown.substring(0, 500),
-      });
-      localStorage.setItem('dpr_user_uploads', JSON.stringify(uploads));
-      localStorage.setItem(`dpr_upload_${fileId}`, markdown);
+      const safeEntry = entry && typeof entry === 'object' ? entry : {};
+      const next = [
+        {
+          id: safeEntry.id,
+          date: safeEntry.date || new Date().toISOString(),
+          preview: safeEntry.preview || markdown.substring(0, 500),
+          title: safeEntry.title || '',
+          route: safeEntry.route || '',
+          originalFilename: safeEntry.originalFilename || '',
+          summaryStatus: safeEntry.summaryStatus || 'queued',
+        },
+        ...uploads.filter((item) => item && item.id !== safeEntry.id),
+      ];
+      localStorage.setItem('dpr_user_uploads', JSON.stringify(next.slice(0, 50)));
+      localStorage.setItem(`dpr_upload_${safeEntry.id}`, markdown);
       return true;
     } catch (e) {
       console.error('保存到本地存储失败:', e);
@@ -345,6 +514,119 @@ tags: ["user-upload", "pdf"]
     setTimeout(() => msgDiv.remove(), 3000);
   };
 
+  const uploadSingleFile = async (file, metadata) => {
+    const token = loadGithubToken();
+    if (!token) {
+      throw new Error('未检测到 GitHub Token，请先完成密钥配置。');
+    }
+
+    const repoInfo = await resolveRepoFromUrl(token);
+    const fileId = generateFileId(file.name);
+    const now = new Date().toISOString();
+    const sourceType = getFileExtension(file.name) === '.pdf' ? 'pdf' : 'text';
+    const paths = buildUploadPaths(fileId, file.name);
+    const entry = {
+      id: fileId,
+      title: normalizeText(metadata.title || '') || file.name,
+      titleZh: normalizeText(metadata.titleZh || '') || normalizeText(metadata.title || '') || file.name,
+      authors: normalizeText(metadata.authors || '') || 'Unknown',
+      date: normalizeText(metadata.date || ''),
+      uploadDate: now,
+      originalFilename: file.name,
+      sourceType,
+      sourcePath: paths.sourcePath,
+      metaPath: paths.metaPath,
+      pagePath: paths.pagePath,
+      route: paths.route,
+      dateLabel: now,
+      summaryStatus: 'queued',
+    };
+
+    const sourceBuffer = await file.arrayBuffer();
+    const sourceBase64 = arrayBufferToBase64(sourceBuffer);
+    const metaObject = {
+      file_id: fileId,
+      title: entry.title,
+      title_zh: entry.titleZh,
+      authors: entry.authors,
+      date: entry.date,
+      upload_date: now.slice(0, 10),
+      original_filename: entry.originalFilename,
+      source_type: entry.sourceType,
+      source_rel_path: paths.sourcePath,
+      page_rel_path: paths.pagePath,
+      meta_rel_path: paths.metaPath,
+      file_size: file.size,
+    };
+    const placeholderMarkdown = buildPlaceholderMarkdown(entry);
+    const currentReadme = await loadReadmeContentFromGithub(token, repoInfo.owner, repoInfo.repo);
+    const nextReadme = updateUploadsReadmeContent(currentReadme, entry);
+
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      paths.sourcePath,
+      sourceBase64,
+      `chore: upload source file ${fileId}`,
+    );
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      paths.metaPath,
+      encodeUtf8ToBase64(JSON.stringify(metaObject, null, 2)),
+      `chore: upload metadata ${fileId}`,
+    );
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      paths.pagePath,
+      encodeUtf8ToBase64(placeholderMarkdown),
+      `chore: create upload page ${fileId}`,
+    );
+    await putGithubFile(
+      token,
+      repoInfo.owner,
+      repoInfo.repo,
+      UPLOAD_README_PATH,
+      encodeUtf8ToBase64(nextReadme),
+      `chore: update uploads index ${fileId}`,
+    );
+
+    saveToLocalStorage(
+      {
+        id: fileId,
+        date: now,
+        preview: `# ${entry.title}\n\n> 文件已上传，等待工作流生成总结。`,
+        title: entry.title,
+        route: entry.route,
+        originalFilename: entry.originalFilename,
+        summaryStatus: 'queued',
+      },
+      placeholderMarkdown,
+    );
+
+    return {
+      ...entry,
+      placeholderMarkdown,
+      repoInfo,
+    };
+  };
+
+  const triggerSummaryWorkflow = async (entry) => {
+    if (!window.DPRWorkflowRunner || typeof window.DPRWorkflowRunner.runWorkflowByKey !== 'function') {
+      throw new Error('工作流模块尚未加载，无法自动触发总结。');
+    }
+    await window.DPRWorkflowRunner.runWorkflowByKey('user-upload-summary', {
+      file_id: entry.id,
+      source_path: entry.sourcePath,
+      page_path: entry.pagePath,
+      meta_path: entry.metaPath,
+    });
+  };
+
   const processUpload = async () => {
     if (isUploading || pendingFiles.length === 0) return;
 
@@ -362,32 +644,32 @@ tags: ["user-upload", "pdf"]
 
     try {
       for (const file of pendingFiles) {
-        let fileData;
-        if (getFileExtension(file.name) === '.pdf') {
-          fileData = await parsePDF(file);
-        } else {
-          fileData = await parseTextFile(file);
-        }
-
-        const { fileId, markdown } = generatePaperMarkdown(fileData, metadata);
-        saveToLocalStorage(fileId, markdown);
+        showUploadMessage(`正在上传 ${file.name} 到 GitHub...`, 'info');
+        const entry = await uploadSingleFile(file, metadata);
+        showUploadMessage(`已上传 ${file.name}，正在触发总结工作流...`, 'info');
+        await triggerSummaryWorkflow(entry);
 
         // 添加到侧边栏（通过自定义事件通知 docsify-plugin）
         document.dispatchEvent(
           new CustomEvent('dpr-user-upload-complete', {
-            detail: { fileId, title: metadata.title || file.name, date: new Date().toISOString() },
+            detail: {
+              fileId: entry.id,
+              title: entry.title,
+              date: entry.dateLabel,
+              route: entry.route,
+              summaryStatus: 'queued',
+            },
           })
         );
       }
 
-      showUploadMessage('上传成功！', 'success');
+      showUploadMessage('上传成功，工作流已触发。', 'success');
       setTimeout(() => {
         closeUploadOverlay();
-        // 刷新页面以显示新上传的文献
-        if (window.location.hash.includes('user-uploads')) {
+        if (window.location.hash.includes('user-uploads/README')) {
           window.location.reload();
         }
-      }, 1000);
+      }, 1200);
     } catch (error) {
       console.error('上传失败:', error);
       showUploadMessage('上传失败: ' + error.message, 'error');

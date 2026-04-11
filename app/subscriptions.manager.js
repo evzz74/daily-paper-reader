@@ -968,14 +968,19 @@ window.SubscriptionsManager = (function () {
           `;
         } else {
           listEl.innerHTML = uploads.map((upload) => `
-            <div class="dpr-upload-item" style="padding:8px 12px; border-bottom:1px solid #eee; font-size:13px;">
+            <a
+              class="dpr-upload-item"
+              href="${upload.route || '#/user-uploads/README'}"
+              style="display:block; padding:8px 12px; border-bottom:1px solid #eee; font-size:13px; text-decoration:none;"
+            >
               <div style="font-weight:500; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                ${(upload.preview || '').split('\n')[0].replace(/^#+\s*/, '').substring(0, 50) || '未命名文献'}
+                ${((upload.title || upload.preview || '').split('\n')[0] || '').replace(/^#+\s*/, '').substring(0, 50) || '未命名文献'}
               </div>
-              <div style="font-size:11px; color:#999; margin-top:2px;">
-                ${new Date(upload.date).toLocaleDateString('zh-CN')}
+              <div style="font-size:11px; color:#999; margin-top:2px; display:flex; justify-content:space-between; gap:8px;">
+                <span>${new Date(upload.date).toLocaleDateString('zh-CN')}</span>
+                <span>${upload.summaryStatus === 'queued' ? '处理中' : '已生成'}</span>
               </div>
-            </div>
+            </a>
           `).join('');
         }
       }
