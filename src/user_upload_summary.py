@@ -167,21 +167,21 @@ def generate_glance(title: str, source_type: str, text_excerpt: str) -> dict[str
         "required": ["tldr", "motivation", "method", "result", "conclusion"],
         "additionalProperties": False,
     }
+    system_prompt = "你是论文速览助手，请用中文简洁地总结论文的关键信息。"
+    payload = {"title": title or "未命名文档", "file_type": source_type, "content": text_excerpt}
+    user_text = json.dumps(payload, ensure_ascii=False)
+    user_prompt = (
+        "请基于上面的内容，输出一个中文速览摘要，严格返回 JSON（不要输出任何其它文字）：\n"
+        '{"tldr":"...","motivation":"...","method":"...","result":"...","conclusion":"..."}\n'
+        "要求：\n"
+        "- tldr：100字左右的完整概述，涵盖研究背景、方法和主要贡献\n"
+        "- motivation/method/result/conclusion：每个字段一句话概括，简洁明了\n"
+        "Output must be strict JSON only, no markdown, no fences, no extra text."
+    )
     messages = [
-        {
-            "role": "system",
-            "content": "你是一名学术文献速览助手，请用中文输出简洁、准确的阅读速览。",
-        },
-        {
-            "role": "user",
-            "content": (
-                f"标题：{title or '未命名文档'}\n"
-                f"文件类型：{source_type}\n\n"
-                f"文档内容节选如下：\n\n{text_excerpt}\n\n"
-                "请严格输出 JSON："
-                '{"tldr":"...","motivation":"...","method":"...","result":"...","conclusion":"..."}'
-            ),
-        },
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_text},
+        {"role": "user", "content": user_prompt},
     ]
     return call_structured_json(
         messages,
@@ -194,24 +194,31 @@ def generate_glance(title: str, source_type: str, text_excerpt: str) -> dict[str
 
 def generate_deep_summary(title: str, source_type: str, text_excerpt: str, max_retries: int = 3) -> str:
     if LLM_CLIENT is None:
-        return "未配置 LLM，无法生成自动总结。"
+        return “未配置 LLM，无法生成自动总结。”
 
-    system_prompt = "你是一名资深学术阅读助手，请使用中文、Markdown 格式输出结构化阅读总结。"
+    system_prompt = (
+        “你是一名资深学术论文分析助手，请使用中文、以 Markdown 形式，”
+        “对给定论文做结构化、深入、客观的总结。”
+    )
     user_prompt = (
-        f"标题：{title or '未命名文档'}\n"
-        f"文件类型：{source_type}\n\n"
-        f"文档内容节选如下：\n\n{text_excerpt}\n\n"
-        "请围绕以下结构输出：\n"
-        "## 核心问题\n"
-        "## 主要内容与方法\n"
-        "## 关键发现\n"
-        "## 适用场景与价值\n"
-        "## 局限与注意事项\n\n"
-        "要求：\n"
-        "1. 使用中文。\n"
-        "2. 内容客观、紧凑，不要空话。\n"
-        "3. 如果文档不是标准学术论文，也请按内容本身总结，不要强行编造实验。\n"
-        "4. 最后一行输出“（完）”。"
+        f”标题：{title or '未命名文档'}\n”
+        f”文件类型：{source_type}\n\n”
+        f”文档内容节选如下：\n\n{text_excerpt}\n\n”
+        “请基于下面提供的论文内容，生成一段详细的中文总结，要求按照如下要点依次展开：\n”
+        “1. 论文的核心问题与整体含义（研究动机和背景）。\n”
+        “2. 论文提出的方法论：核心思想、关键技术细节、公式或算法流程（用文字说明即可）。\n”
+        “3. 实验设计：使用了哪些数据集 / 场景，它的 benchmark 是什么，对比了哪些方法。\n”
+        “4. 资源与算力：如果文中有提到，请总结使用了多少算力（GPU 型号、数量、训练时长等）。若未明确说明，也请指出这一点。\n”
+        “5. 实验数量与充分性：大概做了多少组实验（如不同数据集、消融实验等），这些实验是否充分、是否客观、公平。\n”
+        “6. 论文的主要结论与发现。\n”
+        “7. 优点：方法或实验设计上有哪些亮点。\n”
+        “8. 不足与局限：包括实验覆盖、偏差风险、应用限制等。\n\n”
+        “请用分层标题和项目符号（Markdown 格式）组织上述内容，语言尽量简洁但信息要尽量完整。\n”
+        “要求：\n”
+        “1. 使用中文。\n”
+        “2. 内容客观、紧凑，不要空话。\n”
+        “3. 如果文档不是标准学术论文，也请按内容本身总结，不要强行编造实验细节。\n”
+        “4. 最后单独输出一行”（完）”作为结束标记。”
     )
     messages = [
         {"role": "system", "content": system_prompt},
