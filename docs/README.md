@@ -2,43 +2,32 @@
   <h3 class="dpr-home-notice-title">🚀 Start Here</h3>
   <ul class="dpr-home-notice-list">
     <li><a href="#/tutorial/README">使用教程</a></li>
-    <li><a href="#/user-uploads/README">📤 我的上传文献</a></li>
   </ul>
 </div>
-<!-- USER_UPLOAD_HOME_START -->
-## 我的上传文献
 
-- [密实型沥青混合料裂缝感应热自愈合性能研究.pdf](#/user-uploads/密实型沥青混合料裂缝感应热自愈合性能研究_pdf_1776068645865_6l1iiy) · `密实型沥青混合料裂缝感应热自愈合性能研究.pdf` · 2026-04-13 · 处理中
-<!-- USER_UPLOAD_HOME_END -->
-## 项目说明
+## 每次日报
+- 最新运行日期：2026-04-13
+- 运行时间：2026-04-13 19:56:00 UTC
+- 运行状态：成功
+- 本次总论文数：0
+- 精读区：0
+- 速读区：0
 
-本项目是一个**个人文献阅读器**，支持用户上传自己的文献并进行阅读管理。
+### 今日简报（AI）
+> 今日无新推荐，系统未产出可展示论文。
+- 详情：[/202604/13/README](/202604/13/README)
 
-### 主要特性
+### 精读区论文标签
+- 本次无精读推荐。
 
-- 📤 **用户上传** - 支持上传 PDF、Markdown、TXT 格式的文献，并自动触发工作流生成阅读总结
-- 🤖 **多模型支持** - 支持 OpenAI、DeepSeek、Kimi、GLM、通义千问等多种 LLM
-- 💬 **文献讨论** - 与 AI 讨论文献内容
-- 📚 **仓库同步** - 上传文件会同步到当前 GitHub 仓库，便于跨设备查看和持久保存
+### 速读区论文标签
+- 本次无速读推荐。
 
-### 支持的 LLM 提供商
-
-| 提供商 | 模型示例 |
-|--------|----------|
-| OpenAI | gpt-4.1, gpt-4o, o1, o3-mini |
-| DeepSeek | deepseek-chat, deepseek-reasoner |
-| Kimi | kimi-k2.5, kimi-k2-thinking |
-| 智谱 GLM | glm-4.5, glm-4.5-flash |
-| 通义千问 | qwen-turbo, qwen-plus, qwen-max |
-| 豆包 | doubao-1.5-pro, doubao-1.5-lite |
-| SiliconFlow | DeepSeek-V3, Qwen2.5 |
 
 <div class="dpr-home-promo-card">
-  <h3 class="dpr-home-promo-title">💡 使用提示</h3>
+  <h3 class="dpr-home-promo-title">💬 社区与支持</h3>
   <ul class="dpr-home-promo-list">
-    <li>点击右下角 📤 按钮上传文献</li>
-    <li>点击左下角 ⚙️ 按钮配置 LLM 和密钥</li>
-    <li>支持拖拽文件到上传区域</li>
-    <li>单文件最大支持 20MB</li>
+    <li>欢迎 Star / Fork / Issue / PR</li>
+    <li>QQ群：583867967（欢迎交流，已有：1151人）</li>
   </ul>
 </div>

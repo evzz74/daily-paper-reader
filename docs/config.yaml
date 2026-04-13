@@ -1,11 +1,17 @@
 github:
   owner: ''
   repo: daily-paper-reader
+
+# 论文获取设置
+# 注意：本项目已改为用户上传模式，不再自动从网站搜集文献
+# 用户可以通过页面右下角的上传按钮添加自己的文献
 arxiv_paper_setting:
   mode: standard
   days_window: 9
   docs_dir: docs
   prefer_supabase_read: true
+
+# Supabase 数据库配置
 supabase:
   enabled: true
   url: https://lyucdwgefyfbmaiopjbk.supabase.co
@@ -20,8 +26,39 @@ supabase:
   sync_table: arxiv_sync_status
   sync_success_value: success
   schema: public
+
+# 订阅配置
 subscriptions:
   schema_migration:
     stage: A
     diff_threshold_pct: 15
   keyword_recall_mode: or
+
+# LLM 配置说明
+# 本项目支持多种第三方 LLM 提供商，不再局限于 BLT 平台
+#
+# 支持的提供商预设：
+# - openai: OpenAI 官方 (gpt-4.1, gpt-4o, o1, o3-mini 等)
+# - deepseek: DeepSeek 官方 (deepseek-chat, deepseek-reasoner)
+# - kimi: Kimi/Moonshot (kimi-k2.5, kimi-k2-thinking 等)
+# - glm: 智谱 GLM (glm-4.5, glm-4.5-flash 等)
+# - qwen: 通义千问 (qwen-turbo, qwen-plus, qwen-max 等)
+# - doubao: 豆包 (doubao-1.5-pro, doubao-1.5-lite 等)
+# - minimax: MiniMax (MiniMax-Text-01, abab6.5s 等)
+# - siliconflow: SiliconFlow (DeepSeek-V3, Qwen2.5 等)
+# - custom: 自定义 OpenAI 兼容接口
+#
+# 配置方式：
+# 1. 通过页面左下角的 ⚙️ 按钮进入后台管理
+# 2. 点击"密钥配置"设置 LLM 提供商和 API Key
+# 3. 支持配置多个模型，方便切换使用
+
+# 用户上传配置
+user_uploads:
+  enabled: true
+  max_file_size_mb: 20
+  allowed_extensions:
+    - .pdf
+    - .md
+    - .txt
+  storage_mode: localStorage  # 当前仅支持浏览器本地存储
