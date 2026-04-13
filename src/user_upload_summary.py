@@ -188,7 +188,7 @@ def generate_deep_summary(title: str, source_type: str, text_excerpt: str, max_r
         "1. 使用中文。\n"
         "2. 内容客观、紧凑，不要空话。\n"
         "3. 如果文档不是标准学术论文，也请按内容本身总结，不要强行编造实验。\n"
-        "4. 最后一行输出"(完)"。"
+        "4. 最后一行输出\"(完)\"。"
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -206,7 +206,7 @@ def generate_deep_summary(title: str, source_type: str, text_excerpt: str, max_r
                 return content
             cont_messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"以下内容被截断了，请从中断处继续，不要重复：\n\n{content}\n\n最后一行输出"(完)"。"},
+                {"role": "user", "content": f"以下内容被截断了，请从中断处继续，不要重复：\n\n{content}\n\n最后一行输出\"(完)\"。"},
             ]
             cont = call_text(cont_messages, temperature=0.3, max_tokens=2048)
             merged = f"{content}\n\n{cont}".strip()
@@ -337,7 +337,7 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
             "",
             "- 上传确认后，文件会同步写入 GitHub 仓库的 `docs/user-uploads/` 目录",
             "- 上传完成后会自动触发工作流，读取文件并生成 AI 总结页面",
-            "- 页面侧边栏中的"用户上传模式"也会保留最近上传记录，方便快速跳转",
+            "- 页面侧边栏中的\"用户上传模式\"也会保留最近上传记录，方便快速跳转",
             "",
             "---",
             "",

@@ -28,7 +28,7 @@ app.log
 *.log
 
 # Local tooling
-.claude/
+.claude
 
 # Temporary / test files
 test.pdf
