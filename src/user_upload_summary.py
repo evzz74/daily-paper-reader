@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import argparse
-import html
 import json
 import os
 import re
@@ -16,15 +15,7 @@ from llm import BltClient, GenericOpenAIClient, LLMClient
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 UPLOAD_ROOT = os.path.join(ROOT_DIR, "docs", "user-uploads")
 UPLOAD_META_DIR = os.path.join(UPLOAD_ROOT, "meta")
-HOME_README_PATH = os.path.join(ROOT_DIR, "docs", "README.md")
-SIDEBAR_PATH = os.path.join(ROOT_DIR, "docs", "_sidebar.md")
 MAX_INPUT_CHARS = 50000
-HOME_SECTION_START = "<!-- USER_UPLOAD_HOME_START -->"
-HOME_SECTION_END = "<!-- USER_UPLOAD_HOME_END -->"
-SIDEBAR_SECTION_START = "<!-- USER_UPLOAD_SIDEBAR_START -->"
-SIDEBAR_SECTION_END = "<!-- USER_UPLOAD_SIDEBAR_END -->"
-HOME_MAX_ITEMS = 8
-SIDEBAR_MAX_ITEMS = 12
 
 
 def log(message: str) -> None:
@@ -67,20 +58,6 @@ def save_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-
-
-def save_json(path: str, data: dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-
-
-def load_text(path: str) -> str:
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
 
 
 def extract_pdf_text(pdf_path: str) -> str:
@@ -167,21 +144,21 @@ def generate_glance(title: str, source_type: str, text_excerpt: str) -> dict[str
         "required": ["tldr", "motivation", "method", "result", "conclusion"],
         "additionalProperties": False,
     }
-    system_prompt = "你是论文速览助手，请用中文简洁地总结论文的关键信息。"
-    payload = {"title": title or "未命名文档", "file_type": source_type, "content": text_excerpt}
-    user_text = json.dumps(payload, ensure_ascii=False)
-    user_prompt = (
-        "请基于上面的内容，输出一个中文速览摘要，严格返回 JSON（不要输出任何其它文字）：\n"
-        '{"tldr":"...","motivation":"...","method":"...","result":"...","conclusion":"..."}\n'
-        "要求：\n"
-        "- tldr：100字左右的完整概述，涵盖研究背景、方法和主要贡献\n"
-        "- motivation/method/result/conclusion：每个字段一句话概括，简洁明了\n"
-        "Output must be strict JSON only, no markdown, no fences, no extra text."
-    )
     messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_text},
-        {"role": "user", "content": user_prompt},
+        {
+            "role": "system",
+            "content": "你是一名学术文献速览助手，请用中文输出简洁、准确的阅读速览。",
+        },
+        {
+            "role": "user",
+            "content": (
+                f"标题：{title or '未命名文档'}\n"
+                f"文件类型：{source_type}\n\n"
+                f"文档内容节选如下：\n\n{text_excerpt}\n\n"
+                "请严格输出 JSON："
+                '{"tldr":"...","motivation":"...","method":"...","result":"...","conclusion":"..."}'
+            ),
+        },
     ]
     return call_structured_json(
         messages,
@@ -194,31 +171,24 @@ def generate_glance(title: str, source_type: str, text_excerpt: str) -> dict[str
 
 def generate_deep_summary(title: str, source_type: str, text_excerpt: str, max_retries: int = 3) -> str:
     if LLM_CLIENT is None:
-        return “未配置 LLM，无法生成自动总结。”
+        return "未配置 LLM，无法生成自动总结。"
 
-    system_prompt = (
-        “你是一名资深学术论文分析助手，请使用中文、以 Markdown 形式，”
-        “对给定论文做结构化、深入、客观的总结。”
-    )
+    system_prompt = "你是一名资深学术阅读助手，请使用中文、Markdown 格式输出结构化阅读总结。"
     user_prompt = (
-        f”标题：{title or '未命名文档'}\n”
-        f”文件类型：{source_type}\n\n”
-        f”文档内容节选如下：\n\n{text_excerpt}\n\n”
-        “请基于下面提供的论文内容，生成一段详细的中文总结，要求按照如下要点依次展开：\n”
-        “1. 论文的核心问题与整体含义（研究动机和背景）。\n”
-        “2. 论文提出的方法论：核心思想、关键技术细节、公式或算法流程（用文字说明即可）。\n”
-        “3. 实验设计：使用了哪些数据集 / 场景，它的 benchmark 是什么，对比了哪些方法。\n”
-        “4. 资源与算力：如果文中有提到，请总结使用了多少算力（GPU 型号、数量、训练时长等）。若未明确说明，也请指出这一点。\n”
-        “5. 实验数量与充分性：大概做了多少组实验（如不同数据集、消融实验等），这些实验是否充分、是否客观、公平。\n”
-        “6. 论文的主要结论与发现。\n”
-        “7. 优点：方法或实验设计上有哪些亮点。\n”
-        “8. 不足与局限：包括实验覆盖、偏差风险、应用限制等。\n\n”
-        “请用分层标题和项目符号（Markdown 格式）组织上述内容，语言尽量简洁但信息要尽量完整。\n”
-        “要求：\n”
-        “1. 使用中文。\n”
-        “2. 内容客观、紧凑，不要空话。\n”
-        “3. 如果文档不是标准学术论文，也请按内容本身总结，不要强行编造实验细节。\n”
-        “4. 最后单独输出一行”（完）”作为结束标记。”
+        f"标题：{title or '未命名文档'}\n"
+        f"文件类型：{source_type}\n\n"
+        f"文档内容节选如下：\n\n{text_excerpt}\n\n"
+        "请围绕以下结构输出：\n"
+        "## 核心问题\n"
+        "## 主要内容与方法\n"
+        "## 关键发现\n"
+        "## 适用场景与价值\n"
+        "## 局限与注意事项\n\n"
+        "要求：\n"
+        "1. 使用中文。\n"
+        "2. 内容客观、紧凑，不要空话。\n"
+        "3. 如果文档不是标准学术论文，也请按内容本身总结，不要强行编造实验。\n"
+        "4. 最后一行输出"(完)"。"
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -232,19 +202,19 @@ def generate_deep_summary(title: str, source_type: str, text_excerpt: str, max_r
             if not content:
                 continue
             last = content
-            if "（完）" in content:
+            if "(完)" in content:
                 return content
             cont_messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"以下内容被截断了，请从中断处继续，不要重复：\n\n{content}\n\n最后一行输出“（完）”。"},
+                {"role": "user", "content": f"以下内容被截断了，请从中断处继续，不要重复：\n\n{content}\n\n最后一行输出"(完)"。"},
             ]
             cont = call_text(cont_messages, temperature=0.3, max_tokens=2048)
             merged = f"{content}\n\n{cont}".strip()
-            if "（完）" in merged:
+            if "(完)" in merged:
                 return merged
             last = merged
         except Exception as exc:
-            log(f"[WARN] 生成详细总结失败（第 {attempt} 次）：{exc}")
+            log(f"[WARN] 生成详细总结失败(第 {attempt} 次)：{exc}")
             time.sleep(2 * attempt)
     return last or "自动总结生成失败。"
 
@@ -294,7 +264,7 @@ def build_markdown(meta: dict[str, Any], glance: dict[str, str] | None, deep_sum
             "",
             "---",
             "",
-            "## 速览摘要（自动生成）",
+            "## 速览摘要(自动生成)",
             "",
         ]
     )
@@ -316,7 +286,7 @@ def build_markdown(meta: dict[str, Any], glance: dict[str, str] | None, deep_sum
             "",
             "---",
             "",
-            "## 论文详细总结（自动生成）",
+            "## 论文详细总结(自动生成)",
             "",
             deep_summary.strip() or "自动总结生成失败。",
             "",
@@ -325,37 +295,8 @@ def build_markdown(meta: dict[str, Any], glance: dict[str, str] | None, deep_sum
     return "\n".join(lines).strip() + "\n"
 
 
-def collapse_inline_text(value: Any, limit: int = 120) -> str:
-    text = re.sub(r"\s+", " ", str(value or "").strip())
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 3)].rstrip() + "..."
-
-
-def escape_markdown_link_text(value: Any) -> str:
-    return str(value or "").replace("[", r"\[").replace("]", r"\]").replace("\n", " ").strip()
-
-
-def build_sorted_entries() -> list[dict[str, Any]]:
-    if not os.path.isdir(UPLOAD_META_DIR):
-        return []
-
-    entries: list[dict[str, Any]] = []
-    for name in os.listdir(UPLOAD_META_DIR):
-        if not name.endswith(".json"):
-            continue
-        path = os.path.join(UPLOAD_META_DIR, name)
-        try:
-            item = load_json(path)
-        except Exception as exc:
-            log(f"[WARN] 跳过损坏的上传元数据 {name}: {exc}")
-            continue
-        if not isinstance(item, dict):
-            continue
-        item["_meta_name"] = name
-        entries.append(item)
-
-    return sorted(
+def render_upload_index(entries: list[dict[str, Any]]) -> str:
+    items = sorted(
         entries,
         key=lambda item: (
             str(item.get("upload_date") or ""),
@@ -363,10 +304,6 @@ def build_sorted_entries() -> list[dict[str, Any]]:
         ),
         reverse=True,
     )
-
-
-def render_upload_index(entries: list[dict[str, Any]]) -> str:
-    items = list(entries)
     lines = [
         "# 我的上传文献",
         "",
@@ -375,8 +312,8 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
         "## 使用方法",
         "",
         "1. 点击页面右下角的 **📤 上传按钮**",
-        "2. 拖拽或选择要上传的文件（支持 PDF、Markdown、TXT 格式）",
-        "3. 填写文献信息（可选）",
+        "2. 拖拽或选择要上传的文件(支持 PDF、Markdown、TXT 格式)",
+        "3. 填写文献信息(可选)",
         "4. 点击确认上传",
         "",
         "## 已上传文献",
@@ -389,12 +326,7 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
             title = str(item.get("title") or item.get("original_filename") or file_id).strip() or "未命名文档"
             original_filename = str(item.get("original_filename") or "").strip()
             upload_date = str(item.get("upload_date") or "").strip() or "Unknown"
-            summary_status = "已生成" if str(item.get("summary_status") or "").strip() == "done" else "处理中"
-            tldr = collapse_inline_text(item.get("tldr") or "", limit=90)
-            line = f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date} · {summary_status}'
-            if tldr:
-                line += f" · TLDR: {tldr}"
-            lines.append(line)
+            lines.append(f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date}')
     else:
         lines.append("- 暂无上传文献")
     lines.extend(
@@ -405,7 +337,7 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
             "",
             "- 上传确认后，文件会同步写入 GitHub 仓库的 `docs/user-uploads/` 目录",
             "- 上传完成后会自动触发工作流，读取文件并生成 AI 总结页面",
-            "- 页面侧边栏中的“用户上传模式”也会保留最近上传记录，方便快速跳转",
+            "- 页面侧边栏中的"用户上传模式"也会保留最近上传记录，方便快速跳转",
             "",
             "---",
             "",
@@ -416,85 +348,20 @@ def render_upload_index(entries: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def render_home_section(entries: list[dict[str, Any]]) -> str:
-    lines = [
-        "## 我的上传文献",
-        "",
-    ]
-    items = list(entries[:HOME_MAX_ITEMS])
-    if items:
-        for item in items:
-            file_id = str(item.get("file_id") or "").strip()
-            title = escape_markdown_link_text(item.get("title") or item.get("original_filename") or file_id or "未命名文档")
-            original_filename = str(item.get("original_filename") or "").strip()
-            upload_date = str(item.get("upload_date") or "").strip() or "Unknown"
-            status = "已生成" if str(item.get("summary_status") or "").strip() == "done" else "处理中"
-            line = f'- [{title}](#/user-uploads/{file_id}) · `{original_filename}` · {upload_date} · {status}'
-            tldr = collapse_inline_text(item.get("tldr") or "", limit=120)
-            if tldr:
-                line += f" · TLDR: {tldr}"
-            lines.append(line)
-    else:
-        lines.append("- 暂无上传文献")
-    lines.append("")
-    return "\n".join(lines).strip()
-
-
-def render_sidebar_section(entries: list[dict[str, Any]]) -> str:
-    lines = [
-        '* <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">我的上传文献</a>'
-    ]
-    items = list(entries[:SIDEBAR_MAX_ITEMS])
-    if items:
-        for item in items:
-            file_id = str(item.get("file_id") or "").strip()
-            title = html.escape(str(item.get("title") or item.get("original_filename") or file_id or "未命名文档").strip(), quote=True)
-            route = html.escape(f"#/user-uploads/{file_id}", quote=True)
-            lines.append(
-                f'  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="{route}">{title}</a>'
-            )
-    else:
-        lines.append('  * <a class="dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/user-uploads/README">上传入口</a>')
-    return "\n".join(lines).strip()
-
-
-def upsert_marked_section(base: str, start_marker: str, end_marker: str, section_body: str) -> str:
-    body = section_body.strip()
-    if not body:
-        body = "-"
-    block = f"{start_marker}\n{body}\n{end_marker}"
-    source = str(base or "").strip()
-    if start_marker in source and end_marker in source:
-        pattern = re.compile(re.escape(start_marker) + r"[\s\S]*?" + re.escape(end_marker), re.MULTILINE)
-        replaced = pattern.sub(block, source, count=1)
-        return replaced.strip() + "\n"
-    if source:
-        return source + "\n\n" + block + "\n"
-    return block + "\n"
-
-
-def regenerate_upload_readme(entries: list[dict[str, Any]]) -> None:
+def regenerate_upload_readme() -> None:
+    if not os.path.isdir(UPLOAD_META_DIR):
+        return
+    entries: list[dict[str, Any]] = []
+    for name in os.listdir(UPLOAD_META_DIR):
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(UPLOAD_META_DIR, name)
+        try:
+            entries.append(load_json(path))
+        except Exception as exc:
+            log(f"[WARN] 跳过损坏的上传元数据 {name}: {exc}")
     readme_path = os.path.join(UPLOAD_ROOT, "README.md")
     save_text(readme_path, render_upload_index(entries))
-
-
-def regenerate_home_readme(entries: list[dict[str, Any]]) -> None:
-    current = load_text(HOME_README_PATH)
-    updated = upsert_marked_section(current, HOME_SECTION_START, HOME_SECTION_END, render_home_section(entries))
-    save_text(HOME_README_PATH, updated)
-
-
-def regenerate_sidebar(entries: list[dict[str, Any]]) -> None:
-    current = load_text(SIDEBAR_PATH)
-    updated = upsert_marked_section(current, SIDEBAR_SECTION_START, SIDEBAR_SECTION_END, render_sidebar_section(entries))
-    save_text(SIDEBAR_PATH, updated)
-
-
-def regenerate_indexes() -> None:
-    entries = build_sorted_entries()
-    regenerate_upload_readme(entries)
-    regenerate_home_readme(entries)
-    regenerate_sidebar(entries)
 
 
 def process_upload(file_id: str) -> None:
@@ -529,11 +396,7 @@ def process_upload(file_id: str) -> None:
     source_link = "./" + os.path.relpath(source_path, os.path.dirname(page_path)).replace("\\", "/")
     markdown = build_markdown(meta, glance, deep_summary, source_link)
     save_text(page_path, markdown)
-    meta["summary_status"] = "done"
-    meta["summary_updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    meta["tldr"] = str((glance or {}).get("tldr") or "").strip()
-    save_json(meta_path, meta)
-    regenerate_indexes()
+    regenerate_upload_readme()
     log(f"[INFO] 已生成上传文献总结页：{page_path}")
 
 

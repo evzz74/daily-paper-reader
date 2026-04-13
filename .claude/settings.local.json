@@ -14,7 +14,8 @@
       "Bash(cat /tmp/part1.js /tmp/new_function.js /tmp/part2.js)",
       "Bash(git checkout:*)",
       "Bash(git check-ignore:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(python3 -m py_compile \"/d/Users/XIAO/Documents/.VSCode/daily-paper-reader/src/user_upload_summary.py\")"
     ]
   }
 }
